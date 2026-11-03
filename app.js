@@ -39,11 +39,14 @@
   // ---- In-session tracker ----
   // Tap an empty circle: logs the top of the rep range. Each further tap lowers it by one
   // (partial/failed reps); after 0 it clears back to empty.
+  let showErrors = false; // true after a blocked Finish attempt: outlines untapped circles
   function session() {
     const d = Store.data.draft;
     if (!d) return home();
     document.body.classList.add("in-session");
     const w = Store.data.program.find((p) => p.id === d.workoutId);
+    const complete = d.exercises.every((x) => x.reps.every((r) => r !== null));
+    if (complete) showErrors = false;
 
     view.innerHTML = `
       <div class="head">
@@ -63,13 +66,15 @@
             ${de.reps.map((r, s) => {
               const done = r !== null;
               const full = done && r >= e.repMax;
-              return `<button class="set ${done ? (full ? "full" : "part") : ""}" data-i="${i}" data-s="${s}">${done ? r : e.repMax}</button>`;
+              const cls = done ? (full ? "full" : "part") : showErrors ? "err" : "";
+              return `<button class="set ${cls}" data-i="${i}" data-s="${s}">${done ? r : e.repMax}</button>`;
             }).join("")}
           </div>
           <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${de.note}</textarea>
         </div>`;
       }).join("")}
-      <button class="btn" id="finish">Finish Workout</button>`;
+      <button class="btn ${complete ? "" : "blocked"}" id="finish">Finish Workout</button>
+      ${showErrors && !complete ? `<p class="errmsg">Tap every set before finishing. Tap a circle again to lower the reps; a 0 counts as failed.</p>` : ""}`;
 
     const save = () => Store.save();
     view.onclick = (ev) => {
@@ -84,15 +89,18 @@
       session();
       window.scrollTo(0, y);
     };
+    // Weight edits apply to this session and become the base for progression on finish.
     view.onchange = (ev) => {
       if (ev.target.classList.contains("wt")) {
-        const v = parseFloat(ev.target.value);
-        if (!isNaN(v) && v >= 0) d.exercises[+ev.target.dataset.i].weight = v;
-        save();
+        // Snap the box back to the stored value if the entry was empty/invalid.
+        ev.target.value = fmt(d.exercises[+ev.target.dataset.i].weight);
       }
     };
     view.oninput = (ev) => {
-      if (ev.target.classList.contains("note")) {
+      if (ev.target.classList.contains("wt")) {
+        const v = parseFloat(ev.target.value);
+        if (!isNaN(v) && v >= 0) { d.exercises[+ev.target.dataset.i].weight = v; save(); }
+      } else if (ev.target.classList.contains("note")) {
         d.exercises[+ev.target.dataset.i].note = ev.target.value;
         save();
       }
@@ -103,8 +111,13 @@
       leaveSession();
     };
     document.getElementById("finish").onclick = () => {
-      const logged = d.exercises.some((x) => x.reps.some((r) => r !== null));
-      if (!logged) return alert("Log at least one set first.");
+      if (!complete) {
+        showErrors = true;
+        session();
+        const first = document.querySelector(".set.err");
+        if (first) first.scrollIntoView({ block: "center" });
+        return;
+      }
       Store.finishDraft();
       leaveSession();
     };
@@ -112,6 +125,7 @@
 
   function leaveSession() {
     document.body.classList.remove("in-session");
+    showErrors = false;
     view.onclick = view.onchange = view.oninput = null;
     go("home");
   }
