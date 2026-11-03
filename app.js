@@ -2,6 +2,7 @@
 (function () {
   const view = document.getElementById("view");
   const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   function exerciseRows(w) {
     return w.exercises.map((e) => {
@@ -70,7 +71,7 @@
               return `<button class="set ${cls}" data-i="${i}" data-s="${s}">${done ? r : e.repMax}</button>`;
             }).join("")}
           </div>
-          <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${de.note}</textarea>
+          <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${esc(de.note)}</textarea>
         </div>`;
       }).join("")}
       <button class="btn ${complete ? "" : "blocked"}" id="finish">Finish Workout</button>
@@ -134,10 +135,63 @@
     return () => { view.innerHTML = `<h1>${title}</h1><p class="placeholder">Coming soon</p>`; };
   }
 
+  // ---- History ----
+  function history() {
+    const list = Store.data.sessions.slice().reverse();
+    const names = Object.fromEntries(Store.data.program.map((p) => [p.id, p.name]));
+    view.innerHTML = `<h1>History</h1>` + (list.length ? list.map((s) => {
+      const when = new Date(s.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+      return `
+      <details class="card hist">
+        <summary><span><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><br><span class="sub">${when}</span></span><span class="detail">${s.exercises.length} exercises</span></summary>
+        ${s.exercises.map((e) => `
+          <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
+          <span class="detail">${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}</span></div>`).join("")}
+      </details>`;
+    }).join("") : `<p class="placeholder">No workouts logged yet</p>`);
+  }
+
+  // ---- Progress ----
+  const RANGES = { "1M": 30, "3M": 91, "6M": 182, "1Y": 365, All: Infinity };
+  const prog = { ex: null, range: "3M", e1rm: false };
+
+  // Epley estimate from the best set of a session.
+  const e1rmOf = (e) => Math.max(0, ...e.reps.filter((r) => r > 0).map((r) => e.weight * (1 + r / 30)));
+
+  function progress() {
+    const names = [...new Set(Store.data.program.flatMap((p) => p.exercises.map((e) => e.name)))];
+    if (!prog.ex) prog.ex = names[0];
+    const cutoff = RANGES[prog.range] === Infinity ? 0 : Date.now() - RANGES[prog.range] * 86400000;
+
+    const rows = [];
+    Store.data.sessions.forEach((s) => {
+      const e = s.exercises.find((x) => x.name === prog.ex);
+      if (e && e.reps.some((r) => r !== null)) rows.push({ t: new Date(s.date).getTime(), e });
+    });
+    const inRange = rows.filter((r) => r.t >= cutoff);
+    const series = [{ label: "Weight", color: "#f08a1c", points: inRange.map((r) => ({ t: r.t, v: r.e.weight })) }];
+    if (prog.e1rm) series.push({ label: "e1RM", color: "#e10613", points: inRange.filter((r) => e1rmOf(r.e) > 0).map((r) => ({ t: r.t, v: +e1rmOf(r.e).toFixed(1) })) });
+
+    const latest = rows[rows.length - 1];
+    view.innerHTML = `
+      <h1>Progress</h1>
+      <select id="exsel">${names.map((n) => `<option ${n === prog.ex ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+      <div class="chips">${Object.keys(RANGES).map((r) => `<button data-r="${r}" class="${r === prog.range ? "on" : ""}">${r}</button>`).join("")}</div>
+      <div class="big">${latest ? fmt(latest.e.weight) + "kg" : "–"}</div>
+      <div class="sub">${latest ? "Last: " + new Date(latest.t).toLocaleDateString() : "No sessions for this exercise yet"}</div>
+      <div class="card" style="padding:12px">${Chart.line(series)}</div>
+      <label class="tog"><span><i class="dot" style="background:#f08a1c"></i>Weight</span><span class="sub">always shown</span></label>
+      <label class="tog"><span><i class="dot" style="background:#e10613"></i>e1RM</span><input type="checkbox" id="e1" ${prog.e1rm ? "checked" : ""}></label>`;
+
+    document.getElementById("exsel").onchange = (ev) => { prog.ex = ev.target.value; progress(); };
+    document.getElementById("e1").onchange = (ev) => { prog.e1rm = ev.target.checked; progress(); };
+    view.querySelectorAll(".chips button").forEach((b) => (b.onclick = () => { prog.range = b.dataset.r; progress(); }));
+  }
+
   const routes = {
     home,
-    history: placeholder("History"),
-    progress: placeholder("Progress"),
+    history,
+    progress,
     settings: placeholder("Settings"),
   };
 

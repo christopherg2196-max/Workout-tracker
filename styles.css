@@ -110,3 +110,22 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 .set.err { box-shadow: inset 0 0 0 2px rgba(225, 6, 19, .55); color: var(--accent); }
 .btn.blocked { background: var(--line); color: var(--muted); }
 .errmsg { color: var(--accent); font-size: 14px; text-align: center; margin: 0 0 12px; }
+
+/* ---- History / Progress ---- */
+.hist summary { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; cursor: pointer; list-style: none; }
+.hist summary::-webkit-details-marker { display: none; }
+.hist[open] summary { border-bottom: 1px solid var(--line); }
+#exsel {
+  width: 100%; font: inherit; font-size: 18px; font-weight: 600; padding: 10px 12px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text);
+}
+.chips { display: flex; justify-content: space-between; margin: 14px 0 6px; border-bottom: 1px solid var(--line); }
+.chips button { flex: 1; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 8px 0; border-bottom: 2px solid transparent; }
+.chips button.on { color: var(--accent); border-bottom-color: var(--accent); }
+.big { font-size: 34px; font-weight: 700; margin-top: 10px; }
+.chart { width: 100%; height: auto; display: block; }
+.chart .gl { stroke: var(--line); stroke-width: 1; }
+.chart .gt { fill: var(--muted); font-size: 10px; }
+.tog { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; }
+.tog input { width: 22px; height: 22px; accent-color: var(--accent); }
