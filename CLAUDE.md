@@ -16,7 +16,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 1. **Home**: next workout card (name, exercises with sets×reps @ kg), Start Workout button, upcoming workouts list. Bottom tab bar: Home, History, Progress, Settings.
 2. **In-session**: workout name header, exercise list, set circles per exercise, tap-to-edit weight, notes field, Finish Workout (saves, runs progression).
 3. **Progress**: pick an exercise, line chart of weight over time, range chips (1M/3M/6M/1Y/All); e1RM toggle optional later.
-4. **History** (minimal): list of past sessions.
+4. **History**: month calendar with trained days marked; tap a day to see that day's workout details.
 
 ## Data model
 - `program`: 4 workouts, each with exercises `{name, sets, repMin, repMax, weight, increment}`.
@@ -38,6 +38,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - [ ] 4. PWA install bits (manifest, service worker, icons)
 - [ ] 5. Export/import backup
 - [ ] 6. Deploy to GitHub Pages, install on iPhone
+- [x] 7. Calendar view in History tab (trained days marked, tap a day for details)
 
 ## Verification
 - Serve locally (`python -m http.server`), test at mobile viewport: complete a workout, rotation advances, weight increases only when top reps hit on all sets, chart updates.

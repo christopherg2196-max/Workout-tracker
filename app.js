@@ -136,19 +136,62 @@
   }
 
   // ---- History ----
+  // Month calendar: days with a logged session are filled red; tap a day to see its workout(s).
+  const cal = { y: null, m: null, sel: null };
+  const dayKey = (dt) => `${dt.getFullYear()}-${dt.getMonth() + 1}-${dt.getDate()}`; // local time
+
   function history() {
-    const list = Store.data.sessions.slice().reverse();
+    const today = new Date();
+    if (cal.y === null) { cal.y = today.getFullYear(); cal.m = today.getMonth(); cal.sel = dayKey(today); }
     const names = Object.fromEntries(Store.data.program.map((p) => [p.id, p.name]));
-    view.innerHTML = `<h1>History</h1>` + (list.length ? list.map((s) => {
-      const when = new Date(s.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-      return `
-      <details class="card hist">
-        <summary><span><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><br><span class="sub">${when}</span></span><span class="detail">${s.exercises.length} exercises</span></summary>
-        ${s.exercises.map((e) => `
-          <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
-          <span class="detail">${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}</span></div>`).join("")}
-      </details>`;
-    }).join("") : `<p class="placeholder">No workouts logged yet</p>`);
+
+    const byDay = {};
+    Store.data.sessions.forEach((s) => { (byDay[dayKey(new Date(s.date))] ||= []).push(s); });
+
+    const first = new Date(cal.y, cal.m, 1);
+    const lead = (first.getDay() + 6) % 7; // weeks start on Monday
+    const dim = new Date(cal.y, cal.m + 1, 0).getDate();
+    let monthCount = 0;
+    let cells = "";
+    for (let i = 0; i < lead; i++) cells += `<span class="day empty"></span>`;
+    for (let n = 1; n <= dim; n++) {
+      const key = `${cal.y}-${cal.m + 1}-${n}`;
+      const trained = byDay[key];
+      if (trained) monthCount += trained.length;
+      const cls = ["day", trained ? "trained" : "", key === dayKey(today) ? "today" : "", key === cal.sel ? "sel" : ""].join(" ");
+      cells += `<button class="${cls}" data-k="${key}">${n}</button>`;
+    }
+
+    const title = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const picked = byDay[cal.sel] || [];
+    const [py, pm, pd] = cal.sel.split("-").map(Number);
+    const pickedTitle = new Date(py, pm - 1, pd).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+
+    view.innerHTML = `
+      <h1>History</h1>
+      <div class="card calbox">
+        <div class="head calnav">
+          <button class="link" id="prev" aria-label="Previous month">&#8249;</button>
+          <strong>${title}</strong>
+          <button class="link" id="next" aria-label="Next month">&#8250;</button>
+        </div>
+        <div class="grid dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+        <div class="grid">${cells}</div>
+        <div class="sub" style="text-align:center;padding:8px 0">${monthCount} workout${monthCount === 1 ? "" : "s"} this month</div>
+      </div>
+      <h2>${pickedTitle}</h2>
+      ${picked.length ? picked.map((s) => `
+        <div class="card hist">
+          <div class="row"><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><span class="sub">${new Date(s.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
+          ${s.exercises.map((e) => `
+            <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
+            <span class="detail">${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}</span></div>`).join("")}
+        </div>`).join("") : `<p class="sub">No workout logged this day.</p>`}`;
+
+    const shift = (d) => { const dt = new Date(cal.y, cal.m + d, 1); cal.y = dt.getFullYear(); cal.m = dt.getMonth(); history(); };
+    document.getElementById("prev").onclick = () => shift(-1);
+    document.getElementById("next").onclick = () => shift(1);
+    view.querySelectorAll(".day[data-k]").forEach((b) => (b.onclick = () => { cal.sel = b.dataset.k; history(); }));
   }
 
   // ---- Progress ----
