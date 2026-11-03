@@ -64,5 +64,35 @@
       return p[(data.rotation + offset) % p.length];
     },
     reset() { data = fresh(); save(); },
+
+    // In-progress session survives reloads: stored as data.draft.
+    startDraft() {
+      const w = this.workoutAt(0);
+      data.draft = {
+        workoutId: w.id,
+        startedAt: new Date().toISOString(),
+        exercises: w.exercises.map((e) => ({
+          name: e.name,
+          weight: e.weight,
+          reps: Array(e.sets).fill(null),
+          note: "",
+        })),
+      };
+      save();
+    },
+    discardDraft() { delete data.draft; save(); },
+
+    // Saves the draft as a session, updates program weights, advances the rotation.
+    finishDraft() {
+      const d = data.draft;
+      const w = data.program.find((p) => p.id === d.workoutId);
+      d.exercises.forEach((de, i) => {
+        w.exercises[i].weight = Progression.nextWeight(w.exercises[i], de.weight, de.reps);
+      });
+      data.sessions.push({ date: new Date().toISOString(), workoutId: d.workoutId, exercises: d.exercises });
+      data.rotation = (data.rotation + 1) % data.program.length;
+      delete data.draft;
+      save();
+    },
   };
 })();

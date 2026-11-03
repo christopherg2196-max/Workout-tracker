@@ -23,14 +23,97 @@
       <div class="head"><h1>Next Workout</h1><span class="badge">${next.name}</span></div>
       <div class="sub">${lastText}</div>
       <div class="card">${exerciseRows(next)}</div>
-      <button class="btn" id="start">Start Workout</button>
+      <button class="btn" id="start">${d.draft ? "Resume Workout" : "Start Workout"}</button>
       <div class="upcoming">
         <h2>Upcoming Workouts</h2>
         ${upcoming.map((w) => `
           <div class="head when"><span>${w.name}</span></div>
           <div class="card">${exerciseRows(w)}</div>`).join("")}
       </div>`;
-    document.getElementById("start").onclick = () => alert("Session tracker comes in milestone 2.");
+    document.getElementById("start").onclick = () => {
+      if (!Store.data.draft) Store.startDraft();
+      session();
+    };
+  }
+
+  // ---- In-session tracker ----
+  // Tap an empty circle: logs the top of the rep range. Each further tap lowers it by one
+  // (partial/failed reps); after 0 it clears back to empty.
+  function session() {
+    const d = Store.data.draft;
+    if (!d) return home();
+    document.body.classList.add("in-session");
+    const w = Store.data.program.find((p) => p.id === d.workoutId);
+
+    view.innerHTML = `
+      <div class="head">
+        <button class="link" id="cancel">&#8249; Back</button>
+        <span class="badge">${w.name}</span>
+      </div>
+      ${d.exercises.map((de, i) => {
+        const e = w.exercises[i];
+        const range = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
+        return `
+        <div class="ex">
+          <div class="head">
+            <strong>${de.name}</strong>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${fmt(de.weight)}">kg</span>
+          </div>
+          <div class="sets">
+            ${de.reps.map((r, s) => {
+              const done = r !== null;
+              const full = done && r >= e.repMax;
+              return `<button class="set ${done ? (full ? "full" : "part") : ""}" data-i="${i}" data-s="${s}">${done ? r : e.repMax}</button>`;
+            }).join("")}
+          </div>
+          <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${de.note}</textarea>
+        </div>`;
+      }).join("")}
+      <button class="btn" id="finish">Finish Workout</button>`;
+
+    const save = () => Store.save();
+    view.onclick = (ev) => {
+      const b = ev.target.closest(".set");
+      if (!b) return;
+      const i = +b.dataset.i, s = +b.dataset.s;
+      const e = w.exercises[i];
+      const cur = d.exercises[i].reps[s];
+      d.exercises[i].reps[s] = cur === null ? e.repMax : cur > 0 ? cur - 1 : null;
+      save();
+      const y = window.scrollY;
+      session();
+      window.scrollTo(0, y);
+    };
+    view.onchange = (ev) => {
+      if (ev.target.classList.contains("wt")) {
+        const v = parseFloat(ev.target.value);
+        if (!isNaN(v) && v >= 0) d.exercises[+ev.target.dataset.i].weight = v;
+        save();
+      }
+    };
+    view.oninput = (ev) => {
+      if (ev.target.classList.contains("note")) {
+        d.exercises[+ev.target.dataset.i].note = ev.target.value;
+        save();
+      }
+    };
+    document.getElementById("cancel").onclick = () => {
+      // The draft is kept by default so it can be resumed from Home; OK discards it.
+      if (confirm("Discard this workout? (OK discards, Cancel keeps it to resume later.)")) Store.discardDraft();
+      leaveSession();
+    };
+    document.getElementById("finish").onclick = () => {
+      const logged = d.exercises.some((x) => x.reps.some((r) => r !== null));
+      if (!logged) return alert("Log at least one set first.");
+      Store.finishDraft();
+      leaveSession();
+    };
+  }
+
+  function leaveSession() {
+    document.body.classList.remove("in-session");
+    view.onclick = view.onchange = view.oninput = null;
+    go("home");
   }
 
   function placeholder(title) {
