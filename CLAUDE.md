@@ -39,7 +39,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - [x] 3. Progress chart + History
 - [x] 4. PWA install bits (manifest, service worker, icons). Service worker is network-first with cache fallback, so updates arrive when online. **When adding a new app file, add it to `SHELL` in `sw.js`** so a first offline launch has it. Real SW registration is untestable in the Claude browser pane; verify on localhost in Chrome or on the deployed https site.
 - [x] 5. Export/import backup (Settings tab). Export = share sheet on iPhone, download elsewhere; file is `{app, version, exportedAt, data}` (current `SCHEMA = 1` in `store.js`). Import validates strictly (`Store.parseBackup`), shows a summary, asks before replacing, and never changes data on a bad file. **If the data shape changes, bump `SCHEMA` and add a migration in `parseBackup`**, and keep the new fields in its whitelist or they will be dropped on import. Home shows a quiet reminder after 30 days without a backup.
-- [ ] 6. Deploy to GitHub Pages, install on iPhone
+- [x] 6. Deploy to GitHub Pages, install on iPhone (live at https://christopherg2196-max.github.io/Workout-tracker/; installed on the user's iPhone, Nov 2026; real-gym test pending)
 - [x] 7. Calendar view in History tab (trained days marked, tap a day for details)
 - [x] 8. Choose next workout; cycle-week tracker; deload (70%) button; skip-exercise checkbox
 - [x] 9. kg/lb setting; body weight tracker in Progress tab
