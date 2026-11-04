@@ -36,7 +36,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - [x] 1. Static shell + Home screen with seeded program
 - [x] 2. In-session tracker + save session + progression
 - [x] 3. Progress chart + History
-- [ ] 4. PWA install bits (manifest, service worker, icons)
+- [x] 4. PWA install bits (manifest, service worker, icons). Service worker is network-first with cache fallback, so updates arrive when online. **When adding a new app file, add it to `SHELL` in `sw.js`** so a first offline launch has it. Real SW registration is untestable in the Claude browser pane; verify on localhost in Chrome or on the deployed https site.
 - [ ] 5. Export/import backup
 - [ ] 6. Deploy to GitHub Pages, install on iPhone
 - [x] 7. Calendar view in History tab (trained days marked, tap a day for details)

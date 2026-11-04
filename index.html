@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#e10613">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Workouts">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
   <title>Workout Tracker</title>
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -21,5 +24,11 @@
   <script src="progression.js"></script>
   <script src="store.js"></script>
   <script src="app.js"></script>
+  <script>
+    // Offline support. Needs https or localhost; silently skipped elsewhere (e.g. file://).
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
 </body>
 </html>
