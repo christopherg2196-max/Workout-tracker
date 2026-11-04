@@ -48,3 +48,12 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - Serve locally (`python -m http.server`), test at mobile viewport: complete a workout, rotation advances, weight increases only when top reps hit on all sets, chart updates.
 - Reload and go offline: data persists, app loads.
 - On iPhone Safari: Add to Home Screen, run a full session.
+
+## Added after launch (Nov 2026, user-requested)
+- **Rest timer**: logging a set (circle tap, or ticking the complete checkbox) starts a countdown bar fixed at the bottom of the workout screen (`#restbar` on `<body>`, so it survives re-renders). Core 180 s, assistance 90 s by default; on/off and lengths in Settings (`settings.restOn/restCore/restAssist`). Beeps (WebAudio, unlocked by the tap) and flashes at zero; iOS web apps cannot vibrate or notify while locked.
+- **Plate calculator**: exercises with `bar: true` show a "Plates" link; dialog lists plates per side for the draft weight. Plates kg 25/20/15/10/5/2.5/1.25, lb 45/35/25/10/5/2.5. Empty bar weight is remembered (`settings.barKg` 20 / `barLb` 45). The Barbell flag is a field in Edit program; older saves infer it by name from the defaults.
+- **Personal records**: a session is a PR for a lift if its best Epley e1RM beats all earlier sessions (first time ever is not a PR). `computePRs()`; popup after finishing, "PR" badge in History.
+- **Weekly summary**: top of the Progress tab; this week's workouts and volume (weight x reps), % vs last week, 8-week bar chart (weeks Mon-Sun).
+- **Backup reminder**: Home nags after 14 days or 5 workouts since the last export (`Store.sessionsSinceBackup`).
+- **Edit/delete past sessions**: buttons on each History card. Edit works on a copy (date, weights, reps, skipped, notes) with Save/discard popups; it only fixes the record and does not recalculate program weights. Delete asks first.
+- Popups are in-app (`showDialog`), not `confirm()`. `settings` is always passed through `normalizeSettings` (also inside `parseBackup`), so new settings must be added there or they are dropped on load/import.

@@ -7,27 +7,28 @@
   // step = how much one tap changes reps (default 1; plank counts seconds, so 5).
   // Starting weights are estimates: change them in-session (the weight box) on day one.
   const ex = (type, name, sets, repMin, repMax, weight, inc, step = 1) => ({ name, type, sets, repMin, repMax, weight, inc, step });
+  const bb = (...a) => ({ ...ex(...a), bar: true }); // barbell lift: gets the plate calculator
   const C = "core", A = "assistance";
 
   const DEFAULT_PROGRAM = [
     { id: "UA", name: "Upper A", exercises: [
-      ex(C, "Bench Press", 4, 5, 6, 60, 2.5),
+      bb(C, "Bench Press", 4, 5, 6, 60, 2.5),
       ex(C, "Chest-Supported Row", 4, 6, 8, 50, 2.5),
-      ex(C, "Overhead Press", 3, 6, 8, 35, 2.5),
+      bb(C, "Overhead Press", 3, 6, 8, 35, 2.5),
       ex(A, "Pull-ups", 3, 8, 10, 0, 2.5),
       ex(A, "Triceps Pushdown", 3, 10, 12, 25, 2.5),
       ex(A, "Dumbbell Curl", 3, 10, 12, 10, 1),
     ]},
     { id: "LA", name: "Lower A", exercises: [
-      ex(C, "Squat", 4, 5, 6, 80, 5),
-      ex(C, "Deadlift", 3, 4, 6, 100, 5),
+      bb(C, "Squat", 4, 5, 6, 80, 5),
+      bb(C, "Deadlift", 3, 4, 6, 100, 5),
       ex(A, "Standing Calf Raise", 3, 10, 15, 60, 2.5),
       ex(A, "Hip Abduction Machine", 3, 12, 15, 40, 2.5),
       ex(A, "Crunches", 3, 15, 25, 0, 2.5),
     ]},
     { id: "UB", name: "Upper B", exercises: [
       ex(C, "Incline Dumbbell Press", 4, 8, 10, 24, 2),
-      ex(C, "Bent Over Row", 4, 8, 10, 50, 2.5),
+      bb(C, "Bent Over Row", 4, 8, 10, 50, 2.5),
       ex(A, "Lat Pulldown", 3, 10, 12, 50, 2.5),
       ex(A, "Dumbbell Lateral Raise", 4, 12, 15, 8, 1),
       ex(A, "Face Pulls", 3, 12, 15, 20, 2.5),
@@ -42,10 +43,26 @@
     ]},
   ];
 
+  // Settings with defaults; anything unknown or out of range falls back to the default.
+  // restOn/restCore/restAssist: rest timer. barKg/barLb: empty bar weight for the plate calculator.
+  function normalizeSettings(s) {
+    s = s && typeof s === "object" ? s : {};
+    const num = (v, lo, hi, dflt) => (typeof v === "number" && isFinite(v) && v >= lo && v <= hi ? v : dflt);
+    return {
+      unit: s.unit === "lb" ? "lb" : "kg",
+      restOn: s.restOn !== false,
+      restCore: Math.round(num(s.restCore, 10, 900, 180)),
+      restAssist: Math.round(num(s.restAssist, 10, 900, 90)),
+      barKg: num(s.barKg, 1, 60, 20),
+      barLb: num(s.barLb, 1, 135, 45),
+    };
+  }
+
+
   function fresh() {
     return {
       program: JSON.parse(JSON.stringify(DEFAULT_PROGRAM)), rotation: 0, sessions: [],
-      cycleStart: new Date().toISOString(), settings: { unit: "kg" }, bodyweight: [],
+      cycleStart: new Date().toISOString(), settings: normalizeSettings({}), bodyweight: [],
     };
   }
 
@@ -60,8 +77,11 @@
       const d = JSON.parse(raw);
       // Older saves have no cycle start: use the first logged session, else now.
       if (!d.cycleStart) d.cycleStart = (d.sessions && d.sessions[0] && d.sessions[0].date) || new Date().toISOString();
-      if (!d.settings) d.settings = { unit: "kg" };
+      d.settings = normalizeSettings(d.settings);
       if (!d.bodyweight) d.bodyweight = [];
+      // Saves from before the plate calculator have no barbell flag: infer it from the default program by name.
+      const barNames = new Set(DEFAULT_PROGRAM.flatMap((w) => w.exercises).filter((e) => e.bar).map((e) => e.name));
+      if (Array.isArray(d.program)) d.program.forEach((w) => (w && Array.isArray(w.exercises) ? w.exercises : []).forEach((e) => { if (e && e.bar === undefined) e.bar = barNames.has(e.name); }));
       const res = parseBackup(JSON.stringify({ app: "workout-tracker", version: SCHEMA, data: d }));
       if (res.error) throw new Error(res.error);
       const clean = res.data;
@@ -147,7 +167,7 @@
             check(e && typeof e.name === "string" && [e.sets, e.repMin, e.repMax, e.weight, e.inc].every(num) && e.weight >= 0 && e.inc >= 0 &&
               int(e.sets, 1, 10) && int(e.repMin, 1, 200) && int(e.repMax, e.repMin, 200),
               "Backup has a malformed exercise.");
-            return { name: e.name, type: e.type === "assistance" ? "assistance" : "core", sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc, step: int(e.step, 1, 10) ? e.step : 1 };
+            return { name: e.name, type: e.type === "assistance" ? "assistance" : "core", sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc, step: int(e.step, 1, 10) ? e.step : 1, bar: e.bar === true };
           }),
         };
       });
@@ -180,7 +200,7 @@
       const clean = {
         program, rotation: d.rotation, sessions, bodyweight,
         cycleStart: typeof d.cycleStart === "string" && !isNaN(Date.parse(d.cycleStart)) ? d.cycleStart : new Date().toISOString(),
-        settings: { unit: d.settings && d.settings.unit === "lb" ? "lb" : "kg" },
+        settings: normalizeSettings(d.settings),
       };
       if (typeof d.lastBackup === "string" && !isNaN(Date.parse(d.lastBackup))) clean.lastBackup = d.lastBackup;
 
@@ -226,6 +246,28 @@
       const now = new Date().toISOString();
       copy.lastBackup = now;
       return { app: "workout-tracker", version: SCHEMA, exportedAt: now, data: copy };
+    },
+    // Change one setting (validated through normalizeSettings, so bad values fall back to defaults).
+    setSetting(key, value) { data.settings = normalizeSettings({ ...data.settings, [key]: value }); save(); },
+    // Workouts logged since the last backup (all of them if there never was one).
+    sessionsSinceBackup() {
+      const t = data.lastBackup ? new Date(data.lastBackup).getTime() : 0;
+      return data.sessions.filter((s) => new Date(s.date).getTime() > t).length;
+    },
+    // Past-session fixes. These change history only: current program weights are not recalculated.
+    deleteSession(i) { if (i >= 0 && i < data.sessions.length) { data.sessions.splice(i, 1); save(); } },
+    // changes: { date (ISO string), exercises: [{ weight (kg), reps: [number|null], note, skipped }] } matched by position.
+    updateSession(i, changes) {
+      const s = data.sessions[i];
+      if (!s) return;
+      if (changes.date) s.date = changes.date;
+      (changes.exercises || []).forEach((c, k) => {
+        const e = s.exercises[k];
+        if (!e) return;
+        e.weight = c.weight; e.reps = c.skipped ? c.reps.map(() => null) : c.reps; e.note = c.note || ""; e.skipped = !!c.skipped;
+      });
+      data.sessions.sort((a, b) => new Date(a.date) - new Date(b.date)); // date edits can change the order
+      save();
     },
     markBackup() { data.lastBackup = new Date().toISOString(); save(); },
     // Whole days since the last export, or null if there never was one.
@@ -289,7 +331,7 @@
       this._tidy(prog, wi);
     },
     addExercise(prog, wi) {
-      prog[wi].exercises.push({ name: uniqueName(prog, "New exercise", -1, -1), type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
+      prog[wi].exercises.push({ name: uniqueName(prog, "New exercise", -1, -1), type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1, bar: false });
     },
     removeExercise(prog, wi, ei) { prog[wi].exercises.splice(ei, 1); },
     // dir = -1 (up) or +1 (down); only swaps within the same type group.

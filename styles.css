@@ -237,4 +237,41 @@ input, textarea, .wt, .note { font-size: 16px; }
 .datebox { position: relative; display: flex; align-items: center; height: 44px; box-sizing: border-box; padding: 0 12px;
   background: var(--bg); border: 1px solid var(--line); border-radius: 10px; color: var(--text); font-size: 16px; }
 .dateshow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bwrow .datebox input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0; margin: 0; background: none; }
+.datebox input[type="date"] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0; margin: 0; background: none; }
+
+/* Rest timer bar (fixed at the bottom of the workout screen) */
+#restbar { display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--card); color: var(--text); border-top: 2px solid var(--accent); font-weight: 700; font-size: 18px; }
+body.in-session #restbar { display: flex; }
+body.in-session.has-rest main { padding-bottom: calc(env(safe-area-inset-bottom) + 90px); }
+#restbar.over { background: var(--accent); color: #fff; animation: restflash 0.8s ease-in-out infinite alternate; }
+@keyframes restflash { from { filter: brightness(1); } to { filter: brightness(1.35); } }
+.restbtns { display: flex; gap: 6px; }
+.restbtns button { font: inherit; font-size: 14px; font-weight: 600; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+#restbar.over .restbtns button { background: rgba(255, 255, 255, .2); border-color: rgba(255, 255, 255, .4); color: #fff; }
+.resttimes { margin: 8px 0; }
+
+/* Plate calculator */
+.platein { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.platein label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.platein input { font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
+.plates { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.plate { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; font-size: 16px; }
+.plates-btn { margin-left: 8px; }
+
+/* Personal record badge + history buttons */
+.pr { display: inline-block; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .05em; padding: 2px 6px; border-radius: 6px; vertical-align: 1px; }
+.histbtns { margin-top: 6px; }
+.histbtns .btn { flex: 1; }
+
+/* Weekly summary */
+.wk { padding: 14px 16px; margin-bottom: 14px; }
+.wkstats { display: flex; gap: 28px; margin: 10px 0 6px; }
+.wkstats > div { display: flex; flex-direction: column; }
+.big2 { font-size: 30px; font-weight: 800; line-height: 1.1; }
+.wkbars { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-top: 14px; }
+.wkbar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; min-width: 0; }
+.wkbar .fill { width: 100%; background: var(--line); border-radius: 5px 5px 0 0; min-height: 2px; }
+.wkbar.now .fill { background: var(--accent); }
+.wkbar .cnt { font-size: 12px; color: var(--muted); min-height: 14px; }
+.wkbar em { font-style: normal; font-size: 10px; color: var(--muted); margin-top: 4px; white-space: nowrap; }

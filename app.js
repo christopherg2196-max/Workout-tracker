@@ -27,7 +27,10 @@
     const started = new Date(d.cycleStart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
     // Quiet nudge: only once there is something worth losing, and only after a month without a backup.
     const backupDays = Store.daysSinceBackup();
-    const backupDue = d.sessions.length > 0 && (backupDays === null || backupDays >= 30);
+    const since = Store.sessionsSinceBackup();
+    // Nudge after 14 days, or 5 workouts, without a backup (only once there is something worth losing).
+    const backupDue = d.sessions.length > 0 && (backupDays === null || backupDays >= 14 || since >= 5);
+    const backupText = backupDays === null ? "You haven't backed up your data yet." : since >= 5 ? `${since} workouts since your last backup.` : `Last backup was ${backupDays} days ago.`;
 
     view.innerHTML = `
       <div class="sub">Program</div>
@@ -46,7 +49,7 @@
       <div class="card">${exerciseRows(next)}</div>
       <button class="btn" id="start">${d.draft ? "Resume Workout" : "Start Workout"}</button>
       <button class="btn secondary" id="deload">Deload (70% of all weights)</button>
-      ${backupDue ? `<div class="remind"><span>${backupDays === null ? "You haven't backed up your data yet." : `Last backup was ${backupDays} days ago.`}</span><button class="link small" id="gobackup">Back up</button></div>` : ""}
+      ${backupDue ? `<div class="remind"><span>${backupText}</span><button class="link small" id="gobackup">Back up</button></div>` : ""}
       <div class="upcoming">
         <h2>Upcoming Workouts</h2>
         ${upcoming.map((w) => `
@@ -106,7 +109,7 @@
             <strong>${esc(de.name)}</strong>
             <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 0.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
-          <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
+          <div class="aim">Aim: <strong>${aimText(aims[i])}</strong>${e.bar ? ` <button class="link small plates-btn" data-i="${i}">Plates</button>` : ""}</div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
           <div class="setsrow">
           <div class="sets">
@@ -129,12 +132,15 @@
 
     const save = () => Store.save();
     view.onclick = (ev) => {
+      const pb = ev.target.closest(".plates-btn");
+      if (pb) return plateDialog(d.exercises[+pb.dataset.i].name, d.exercises[+pb.dataset.i].weight);
       const b = ev.target.closest(".set");
       if (!b) return;
       const i = +b.dataset.i, s = +b.dataset.s;
       const e = w.exercises[i];
       const cur = d.exercises[i].reps[s];
       d.exercises[i].reps[s] = Progression.nextRep(cur, aims[i][s], e.repMax, e.step || 1);
+      if (d.exercises[i].reps[s] !== null) startRest(e.type); // a logged set starts the rest timer
       save();
       const y = window.scrollY;
       session();
@@ -146,6 +152,7 @@
         // Tick: log the aim for every empty circle (circles you already tapped keep their value). Untick: clear them all.
         const i = +ev.target.dataset.i, de = d.exercises[i];
         de.reps = ev.target.checked ? de.reps.map((r, s) => (r === null ? aims[i][s] : r)) : de.reps.map(() => null);
+        if (ev.target.checked) startRest(w.exercises[i].type);
         save();
         const y = window.scrollY;
         session();
@@ -174,11 +181,15 @@
         save();
       }
     };
-    document.getElementById("cancel").onclick = () => {
-      // The draft is kept by default so it can be resumed from Home; OK discards it.
-      if (confirm("Discard this workout? (OK discards, Cancel keeps it to resume later.)")) Store.discardDraft();
-      leaveSession();
-    };
+    document.getElementById("cancel").onclick = () => showDialog({
+      title: "Leave this workout?",
+      html: `<p>Your sets are saved as you go, so you can pick the workout up again from Home. Or discard it completely.</p>`,
+      buttons: [
+        { label: "Leave, resume later", fn: leaveSession },
+        { label: "Discard workout", cls: "danger-solid", fn: () => { Store.discardDraft(); leaveSession(); } },
+        { label: "Stay", cls: "secondary" },
+      ],
+    });
     document.getElementById("finish").onclick = () => {
       if (!canFinish) {
         showErrors = true;
@@ -188,15 +199,152 @@
         return;
       }
       Store.finishDraft();
+      const prs = computePRs().pop();
       leaveSession();
+      if (prs && prs.length) {
+        showDialog({
+          title: "New personal best!",
+          html: prs.map((h) => `<p><strong>${esc(h.name)}</strong><br><span class="sub">Estimated 1RM ${Units.showBody(h.e1rm)}${Units.label} (was ${Units.showBody(h.prev)}${Units.label})</span></p>`).join(""),
+          buttons: [{ label: "Nice!" }],
+        });
+      }
     };
   }
 
   function leaveSession() {
+    stopRest();
     document.body.classList.remove("in-session");
     showErrors = false;
     view.onclick = view.onchange = view.oninput = null;
     go("home");
+  }
+
+  // ---- Rest timer ----
+  // The bar lives on <body> (not inside the re-rendered session view) so it keeps counting across taps.
+  // Phones cannot buzz or notify from an installed web app while locked, so it beeps and flashes while the app is open.
+  let rest = null; // { endsAt, over, hideAt }
+  let restTimer = null;
+  let audioCtx = null;
+  function beep() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      [0, 0.25].forEach((t) => {
+        const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+        o.frequency.value = 880; g.gain.value = 0.2;
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(audioCtx.currentTime + t); o.stop(audioCtx.currentTime + t + 0.18);
+      });
+    } catch (e) { /* no audio available: the bar still flashes */ }
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* iOS has no vibration */ }
+  }
+  const mmss = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+
+  function restBar() {
+    let el = document.getElementById("restbar");
+    if (!rest) { if (el) el.remove(); document.body.classList.remove("has-rest"); return; }
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "restbar";
+      el.innerHTML = `<span id="resttext"></span><span class="restbtns"><button data-r="-15">&minus;15s</button><button data-r="15">+15s</button><button data-r="skip">Skip</button></span>`;
+      el.onclick = (ev) => {
+        const b = ev.target.closest("[data-r]");
+        if (!b || !rest) return;
+        if (b.dataset.r === "skip") return stopRest();
+        rest.endsAt += +b.dataset.r * 1000;
+        rest.over = false;
+        tickRest();
+      };
+      document.body.appendChild(el);
+    }
+    document.body.classList.add("has-rest");
+  }
+  function tickRest() {
+    if (!rest) return;
+    const left = Math.ceil((rest.endsAt - Date.now()) / 1000);
+    const el = document.getElementById("restbar"), txt = document.getElementById("resttext");
+    if (left > 0) {
+      rest.over = false;
+      if (txt) txt.textContent = `Rest ${mmss(left)}`;
+      if (el) el.classList.remove("over");
+      return;
+    }
+    if (!rest.over) { rest.over = true; rest.hideAt = Date.now() + 20000; beep(); }
+    if (txt) txt.textContent = "Rest over: go!";
+    if (el) el.classList.add("over");
+    if (Date.now() > rest.hideAt) stopRest();
+  }
+  // type = "core" | "assistance" picks the rest length from Settings.
+  function startRest(type) {
+    const s = Store.data.settings;
+    if (!s.restOn) return;
+    rest = { endsAt: Date.now() + (type === "assistance" ? s.restAssist : s.restCore) * 1000, over: false, hideAt: 0 };
+    restBar();
+    clearInterval(restTimer);
+    restTimer = setInterval(tickRest, 250);
+    tickRest();
+    // Unlock audio from this tap so the beep is allowed later (iOS only allows sound after a tap).
+    try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch (e) { /* ignore */ }
+  }
+  function stopRest() { rest = null; clearInterval(restTimer); restTimer = null; restBar(); }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) tickRest(); });
+
+  // ---- Plate calculator ----
+  const PLATES = { kg: [25, 20, 15, 10, 5, 2.5, 1.25], lb: [45, 35, 25, 10, 5, 2.5] };
+  // Plates for each side of the bar for a target total (all in the same unit). `short` = total weight that cannot be made.
+  function platesFor(total, bar, unit) {
+    let per = (total - bar) / 2;
+    if (per < 0) return { under: true, plates: [], short: 0 };
+    const plates = [];
+    for (const p of PLATES[unit]) {
+      const n = Math.floor((per + 1e-9) / p);
+      if (n > 0) { plates.push([p, n]); per -= n * p; }
+    }
+    return { under: false, plates, short: Math.round(per * 2 * 100) / 100 };
+  }
+  function plateDialog(name, weightKg) {
+    const unit = Units.unit, key = unit === "lb" ? "barLb" : "barKg";
+    const box = showDialog({
+      title: `Plates: ${name}`,
+      html: `<div class="platein">
+          <label>Weight (${unit})<input id="pcw" type="number" inputmode="decimal" step="any" value="${Units.show(weightKg)}"></label>
+          <label>Empty bar (${unit})<input id="pcb" type="number" inputmode="decimal" step="any" value="${Store.data.settings[key]}"></label>
+        </div><div id="pcout"></div>`,
+      buttons: [{ label: "Close", cls: "secondary" }],
+    });
+    const out = box.querySelector("#pcout"), w = box.querySelector("#pcw"), b = box.querySelector("#pcb");
+    const draw = () => {
+      const total = parseFloat(w.value), bar = parseFloat(b.value);
+      if (isNaN(total) || isNaN(bar)) { out.innerHTML = `<p class="sub">Enter a weight and the bar weight.</p>`; return; }
+      const r = platesFor(total, bar, unit);
+      out.innerHTML = r.under
+        ? `<p>That is lighter than the bar (${bar}${unit}).</p>`
+        : (r.plates.length
+          ? `<p class="sub">On each side of the bar:</p><div class="plates">${r.plates.map(([p, n]) => `<span class="plate"><strong>${p}</strong> &times; ${n}</span>`).join("")}</div>`
+          : `<p>Just the empty bar.</p>`) +
+          (r.short > 0.01 ? `<p class="errmsg">Can't make exactly ${total}${unit} with these plates: ${r.short}${unit} short.</p>` : "");
+    };
+    w.oninput = b.oninput = draw;
+    b.onchange = () => { const v = parseFloat(b.value); if (!isNaN(v)) Store.setSetting(key, v); }; // remembered for next time
+    draw();
+  }
+
+  // ---- Personal records ----
+  // A session is a PR for a lift if its best estimated 1RM beats every earlier session of that lift
+  // (the very first time you do a lift is not a PR). Returns an array parallel to sessions: [{ name, e1rm, prev }].
+  function computePRs() {
+    const best = {};
+    return Store.data.sessions.map((s) => {
+      const hits = [];
+      s.exercises.forEach((e) => {
+        if (e.skipped || e.weight <= 0) return;
+        const v = e1rmOf(e);
+        if (v <= 0) return;
+        if (best[e.name] !== undefined && v > best[e.name] + 1e-6) hits.push({ name: e.name, e1rm: v, prev: best[e.name] });
+        best[e.name] = Math.max(best[e.name] || 0, v);
+      });
+      return hits;
+    });
   }
 
   // ---- History ----
@@ -228,6 +376,7 @@
 
     const title = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
     const picked = byDay[cal.sel] || [];
+    const prs = computePRs(); // per session index; used for the PR badges
     const [py, pm, pd] = cal.sel.split("-").map(Number);
     const pickedTitle = new Date(py, pm - 1, pd).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
@@ -248,14 +397,154 @@
         <div class="card hist">
           <div class="row"><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><span class="sub">${new Date(s.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
           ${s.exercises.map((e) => `
-            <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
+            <div class="row"><span>${esc(e.name)}${prs[Store.data.sessions.indexOf(s)].some((h) => h.name === e.name) ? ` <span class="pr">PR</span>` : ""}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
             <span class="detail">${e.skipped ? "Skipped" : `${Units.show(e.weight)}${Units.label} × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}`}</span></div>`).join("")}
+          <div class="btnrow histbtns">
+            <button class="btn secondary small" data-edit="${Store.data.sessions.indexOf(s)}">Edit</button>
+            <button class="btn secondary small danger" data-del="${Store.data.sessions.indexOf(s)}">Delete</button>
+          </div>
         </div>`).join("") : `<p class="sub">No workout logged this day.</p>`}`;
 
     const shift = (d) => { const dt = new Date(cal.y, cal.m + d, 1); cal.y = dt.getFullYear(); cal.m = dt.getMonth(); history(); };
     document.getElementById("prev").onclick = () => shift(-1);
     document.getElementById("next").onclick = () => shift(1);
+    view.querySelectorAll("[data-edit]").forEach((b) => (b.onclick = () => sessionEditor(+b.dataset.edit)));
+    view.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => deleteSessionDialog(+b.dataset.del)));
     view.querySelectorAll(".day[data-k]").forEach((b) => (b.onclick = () => { cal.sel = b.dataset.k; history(); }));
+  }
+
+  // ---- Edit a past session (History > Edit) ----
+  // Works on a copy; nothing changes until Save. Only fixes the record: current program weights are not recalculated.
+  let sesEdit = null; // { dirty() } while the editor is open, so tab changes can ask before throwing edits away
+  function sessionEditor(idx) {
+    const orig = Store.data.sessions[idx];
+    if (!orig) return history();
+    const names = Object.fromEntries(Store.data.program.map((p) => [p.id, p.name]));
+    const work = JSON.parse(JSON.stringify(orig));
+    const origDate = localDate(new Date(orig.date));
+    let dateStr = origDate;
+    let err = "";
+    sesEdit = { dirty: () => JSON.stringify(work) !== JSON.stringify(orig) || dateStr !== origDate };
+
+    const draw = () => {
+      view.innerHTML = `
+        <div class="head"><button class="link" id="seback">&#8249; History</button></div>
+        <h1>Edit workout</h1>
+        <p class="sub"><strong>${esc(names[work.workoutId] || work.workoutId)}</strong>. This only corrects the record; your current program weights are not recalculated.</p>
+        <div class="bwrow"><label>Date<span class="datebox"><span class="dateshow" id="sedshow">${esc(bwDateText(dateStr))}</span><input type="date" id="seddate" value="${dateStr}"></span></label></div>
+        ${work.exercises.map((e, i) => `
+          <div class="ex edx">
+            <div class="head"><strong>${esc(e.name)}</strong>
+              <label class="skip"><input type="checkbox" class="sk" data-i="${i}" ${e.skipped ? "checked" : ""}> Skipped</label></div>
+            ${e.skipped ? "" : `<div class="grid">
+              <label class="f"><span>Weight (${Units.label})</span><input class="sw" data-i="${i}" inputmode="decimal" value="${Units.show(e.weight)}"></label>
+              ${e.reps.map((r, s) => `<label class="f"><span>Set ${s + 1}</span><input class="sr" data-i="${i}" data-s="${s}" inputmode="numeric" value="${r === null ? "" : r}"></label>`).join("")}
+            </div>`}
+            <textarea class="note sn" data-i="${i}" rows="1" placeholder="Notes">${esc(e.note || "")}</textarea>
+          </div>`).join("")}
+        ${err ? `<p class="errmsg">${esc(err)}</p>` : ""}
+        <button class="btn" id="sesave">Save changes</button>
+        <button class="btn secondary danger" id="sedel">Delete this workout</button>`;
+
+      document.getElementById("seback").onclick = back;
+      document.getElementById("sedel").onclick = () => deleteSessionDialog(idx);
+      document.getElementById("sesave").onclick = save;
+      view.onchange = (ev) => {
+        const t = ev.target, i = +t.dataset.i;
+        if (t.classList.contains("sk")) { work.exercises[i].skipped = t.checked; err = ""; const y = window.scrollY; draw(); window.scrollTo(0, y); }
+        else if (t.id === "seddate") { dateStr = t.value; document.getElementById("sedshow").textContent = bwDateText(dateStr); }
+        else if (t.classList.contains("sw")) {
+          const v = parseFloat(t.value);
+          if (!isNaN(v) && v >= 0) work.exercises[i].weight = Units.snapKg(Units.toKg(v));
+          t.value = Units.show(work.exercises[i].weight);
+        } else if (t.classList.contains("sr")) {
+          const s = +t.dataset.s, v = t.value.trim() === "" ? null : Number(t.value);
+          if (v === null || (Number.isInteger(v) && v >= 0 && v <= 200)) work.exercises[i].reps[s] = v;
+          else t.value = work.exercises[i].reps[s] === null ? "" : work.exercises[i].reps[s];
+        }
+      };
+      view.oninput = (ev) => { if (ev.target.classList.contains("sn")) work.exercises[+ev.target.dataset.i].note = ev.target.value; };
+    };
+
+    const back = () => {
+      const leave = () => { sesEdit = null; history(); };
+      if (!sesEdit.dirty()) return leave();
+      showDialog({
+        title: "Discard changes?",
+        html: `<p>You have unsaved edits to this workout. If you go back now, <strong>all of them will be discarded</strong>.</p>`,
+        buttons: [{ label: "Discard changes and go back", cls: "danger-solid", fn: leave }, { label: "Keep editing", cls: "secondary" }],
+      });
+    };
+    const save = () => {
+      if (!dateStr) { err = "Pick a date."; return draw(); }
+      if (work.exercises.some((e) => !e.skipped && e.reps.some((r) => r === null))) { err = "Fill in every set (use 0 for a failed set), or tick Skipped."; return draw(); }
+      if (work.exercises.every((e) => e.skipped)) { err = "At least one exercise must be done. To remove the whole workout, delete it instead."; return draw(); }
+      showDialog({
+        title: "Save changes?",
+        html: `<p>This updates the saved record of this workout.</p>`,
+        buttons: [{
+          label: "Yes, save changes",
+          fn: () => {
+            const t = new Date(orig.date), [y, m, d] = dateStr.split("-").map(Number);
+            const iso = new Date(y, m - 1, d, t.getHours(), t.getMinutes(), t.getSeconds()).toISOString();
+            Store.updateSession(idx, { date: iso, exercises: work.exercises });
+            sesEdit = null;
+            cal.y = y; cal.m = m - 1; cal.sel = `${y}-${m}-${d}`;
+            history();
+          },
+        }, { label: "Keep editing", cls: "secondary" }],
+      });
+    };
+    draw();
+    window.scrollTo(0, 0);
+  }
+
+  function deleteSessionDialog(idx) {
+    const s = Store.data.sessions[idx];
+    if (!s) return;
+    const name = (Store.data.program.find((p) => p.id === s.workoutId) || {}).name || s.workoutId;
+    showDialog({
+      title: "Delete this workout?",
+      html: `<p><strong>${esc(name)}</strong> on ${esc(new Date(s.date).toLocaleDateString())} will be permanently removed from your history. <strong>This cannot be undone.</strong></p>`,
+      buttons: [
+        { label: "Delete workout", cls: "danger-solid", fn: () => { Store.deleteSession(idx); sesEdit = null; history(); } },
+        { label: "Cancel", cls: "secondary" },
+      ],
+    });
+  }
+
+  // ---- Weekly summary (top of the Progress tab) ----
+  // Weeks run Monday to Sunday. Volume = sum of weight x reps over finished sets.
+  function weeklyCard() {
+    const sessions = Store.data.sessions;
+    if (!sessions.length) return "";
+    const mondayOf = (dt) => { const x = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+    const weeks = [];
+    const base = mondayOf(new Date());
+    for (let i = 7; i >= 0; i--) { const s = new Date(base); s.setDate(s.getDate() - 7 * i); weeks.push({ start: s, key: s.getTime(), n: 0, vol: 0 }); }
+    const byKey = Object.fromEntries(weeks.map((w) => [w.key, w]));
+    sessions.forEach((s) => {
+      const w = byKey[mondayOf(new Date(s.date)).getTime()];
+      if (!w) return;
+      w.n += 1;
+      s.exercises.forEach((e) => { if (!e.skipped) e.reps.forEach((r) => { if (r > 0) w.vol += e.weight * r; }); });
+    });
+    const cur = weeks[weeks.length - 1], prev = weeks[weeks.length - 2];
+    const fmt = (kg) => Math.round(Units.toDisplay(kg)).toLocaleString();
+    const delta = prev.vol > 0 ? Math.round(((cur.vol - prev.vol) / prev.vol) * 100) : null;
+    const max = Math.max(4, ...weeks.map((w) => w.n));
+    return `
+      <div class="card wk">
+        <div class="head"><strong>This week</strong><span class="sub">Mon&ndash;Sun</span></div>
+        <div class="wkstats">
+          <div><span class="big2">${cur.n}</span><span class="sub">workout${cur.n === 1 ? "" : "s"}</span></div>
+          <div><span class="big2">${fmt(cur.vol)}</span><span class="sub">${Units.label} lifted</span></div>
+        </div>
+        ${delta === null ? "" : `<div class="sub">${delta >= 0 ? "+" : ""}${delta}% volume vs last week (${fmt(prev.vol)} ${Units.label})</div>`}
+        <div class="wkbars" aria-label="Workouts per week, last 8 weeks">
+          ${weeks.map((w, i) => `<div class="wkbar ${i === weeks.length - 1 ? "now" : ""}"><span class="cnt">${w.n || ""}</span><div class="fill" style="height:${(w.n / max) * 100}%"></div><em>${w.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })}</em></div>`).join("")}
+        </div>
+      </div>`;
   }
 
   // ---- Progress ----
@@ -282,6 +571,7 @@
     const latest = rows[rows.length - 1];
     view.innerHTML = `
       <h1>Progress</h1>
+      ${weeklyCard()}
       <select id="exsel">${names.map((n) => `<option value="${esc(n)}" ${n === prog.ex ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
       <div class="chips">${Object.keys(RANGES).map((r) => `<button data-r="${r}" class="${r === prog.range ? "on" : ""}">${r}</button>`).join("")}</div>
       <div class="big">${latest ? Units.show(latest.e.weight) + Units.label : "–"}</div>
@@ -368,6 +658,14 @@
       <button class="btn secondary" id="editprog">Edit program</button>
       <p class="sub">Change exercises, sets, rep ranges, weights and order.</p>
 
+      <h2>Rest timer</h2>
+      <label class="skip"><input type="checkbox" id="reston" ${Store.data.settings.restOn ? "checked" : ""}> Start a rest timer when I log a set</label>
+      <div class="bwrow resttimes">
+        <label>Core lifts (seconds)<input type="number" id="restcore" inputmode="numeric" min="10" max="900" value="${Store.data.settings.restCore}"></label>
+        <label>Assistance (seconds)<input type="number" id="restassist" inputmode="numeric" min="10" max="900" value="${Store.data.settings.restAssist}"></label>
+      </div>
+      <p class="sub">A bar at the bottom of the workout screen counts down, then beeps. Phones can't buzz or notify from an installed web app, so keep the screen on while you rest.</p>
+
       <h2>Units</h2>
       <div class="seg" role="group" aria-label="Weight units">
         <button data-u="kg" class="${u === "kg" ? "on" : ""}">kg</button>
@@ -390,6 +688,14 @@
       <button class="btn secondary danger" id="reset">Reset app data</button>`;
     backupMsg = null; // shown once
 
+    document.getElementById("reston").onchange = (ev) => Store.setSetting("restOn", ev.target.checked);
+    for (const [id, key] of [["restcore", "restCore"], ["restassist", "restAssist"]]) {
+      document.getElementById(id).onchange = (ev) => {
+        const v = parseInt(ev.target.value, 10);
+        if (v >= 10 && v <= 900) Store.setSetting(key, v);
+        ev.target.value = Store.data.settings[key]; // snap back if invalid
+      };
+    }
     view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
     document.getElementById("editprog").onclick = () => { edDraft = null; edArmed = -1; editor(); };
     document.getElementById("export").onclick = exportBackup;
@@ -417,6 +723,7 @@
       box.remove();
       if (buttons[+b.dataset.b].fn) buttons[+b.dataset.b].fn();
     });
+    return box;
   }
 
   // ---- Program editor (Settings > Edit program) ----
@@ -457,6 +764,7 @@
             ${field("Weight", i, "weight", Units.show(e.weight))}
             ${field("Add when top hit", i, "inc", incShow(e.inc))}
             ${field("Reps per tap", i, "step", e.step || 1)}
+            <label class="f"><span>Barbell</span><select data-i="${i}" data-k="bar"><option value="no" ${e.bar ? "" : "selected"}>No</option><option value="yes" ${e.bar ? "selected" : ""}>Yes (plates)</option></select></label>
           </div>
           <div class="btnrow">
             <button class="btn secondary small" data-act="up" data-i="${i}" aria-label="Move up">&#9650;</button>
@@ -504,9 +812,10 @@
       if (!k) return;
       edArmed = -1;
       const i = +el.dataset.i, e = w.exercises[i];
-      const v = k === "name" || k === "type" ? el.value.trim() : parseFloat(el.value);
+      const v = k === "name" || k === "type" || k === "bar" ? el.value.trim() : parseFloat(el.value);
       let patch = null;
       if (k === "name") { if (v) patch = { name: v }; }
+      else if (k === "bar") patch = { bar: v === "yes" };
       else if (k === "type") patch = { type: v === "assistance" ? "assistance" : "core" };
       else if (isNaN(v)) { /* snap back */ }
       else if (k === "sets") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { sets: v }; }
@@ -628,6 +937,16 @@
 
   function go(tab) {
     if (edDraft) { leaveEditor(() => go(tab)); return; } // leaving the program editor: confirm if there are unsaved edits
+    if (sesEdit) { // leaving the past-session editor
+      const leave = () => { sesEdit = null; go(tab); };
+      if (!sesEdit.dirty()) return leave();
+      showDialog({
+        title: "Discard changes?",
+        html: `<p>You have unsaved edits to a workout. If you leave now, <strong>all of them will be discarded</strong>.</p>`,
+        buttons: [{ label: "Discard changes and leave", cls: "danger-solid", fn: leave }, { label: "Keep editing", cls: "secondary" }],
+      });
+      return;
+    }
     document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
     view.onclick = view.onchange = view.oninput = null; // drop handlers left by the session/editor views
     routes[tab]();
