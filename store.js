@@ -16,7 +16,7 @@
       ex(C, "Overhead Press", 3, 6, 8, 35, 2.5),
       ex(A, "Pull-ups", 3, 8, 10, 0, 2.5),
       ex(A, "Triceps Pushdown", 3, 10, 12, 25, 2.5),
-      ex(A, "Dumbbell Curl", 3, 10, 12, 10, 2.5),
+      ex(A, "Dumbbell Curl", 3, 10, 12, 10, 1),
     ]},
     { id: "LA", name: "Lower A", exercises: [
       ex(C, "Squat", 4, 5, 6, 80, 5),
@@ -26,16 +26,16 @@
       ex(A, "Crunches", 3, 15, 25, 0, 2.5),
     ]},
     { id: "UB", name: "Upper B", exercises: [
-      ex(C, "Incline Dumbbell Press", 4, 8, 10, 25, 2.5),
+      ex(C, "Incline Dumbbell Press", 4, 8, 10, 24, 2),
       ex(C, "Bent Over Row", 4, 8, 10, 50, 2.5),
       ex(A, "Lat Pulldown", 3, 10, 12, 50, 2.5),
-      ex(A, "Dumbbell Lateral Raise", 4, 12, 15, 7.5, 2.5),
+      ex(A, "Dumbbell Lateral Raise", 4, 12, 15, 8, 1),
       ex(A, "Face Pulls", 3, 12, 15, 20, 2.5),
       ex(A, "Overhead Triceps Extension", 3, 10, 12, 20, 2.5),
     ]},
     { id: "LB", name: "Lower B", exercises: [
       ex(C, "Leg Press", 4, 8, 10, 120, 5),
-      ex(C, "Bulgarian Split Squat (each leg)", 3, 8, 10, 15, 2.5),
+      ex(C, "Bulgarian Split Squat (each leg)", 3, 8, 10, 16, 2),
       ex(A, "Leg Extension", 3, 12, 15, 40, 2.5),
       ex(A, "Seated Leg Curl", 3, 12, 15, 40, 2.5),
       ex(A, "Plank (seconds)", 3, 30, 60, 0, 0, 5),
@@ -99,23 +99,23 @@
     get label() { return data.settings.unit; },
     toDisplay(kg) { return data.settings.unit === "lb" ? kg * LB : kg; },
     toKg(v) { return data.settings.unit === "lb" ? v / LB : v; },
-    // Display string without the unit label. Lifting weights always snap to the smallest plate step:
-    // 5 lb (137.8 -> 140) or 2.5 kg (a 1.25 kg plate on each side). Use showBody for body weight.
+    // Display string without the unit label. In lb mode lifting weights snap to 5 lb (137.8 -> 140);
+    // in kg mode nothing is rounded (dumbbell pairs such as 2 x 8 = 16 need free steps). Use showBody for body weight.
     show(kg) { const v = this.lift(kg); return Number.isInteger(v) ? String(v) : v.toFixed(1); },
-    // Lifting weight as a number in the current unit, to the nearest plate step (5 lb / 2.5 kg).
-    lift(kg) { return data.settings.unit === "lb" ? Math.round((kg * LB) / 5) * 5 : Math.round(kg / 2.5) * 2.5; },
-    // Snaps a kg weight to the plate step so the stored value matches what's shown.
-    snapKg(kg) { return data.settings.unit === "lb" ? this.lift(kg) / LB : this.lift(kg); },
+    // Lifting weight as a number in the current unit: nearest 5 lb in lb mode, unchanged in kg.
+    lift(kg) { return data.settings.unit === "lb" ? Math.round((kg * LB) / 5) * 5 : Math.round(kg * 10) / 10; },
+    // Snaps a kg weight to a whole 5-lb step in lb mode so the stored value matches what's shown; no-op in kg.
+    snapKg(kg) { return data.settings.unit === "lb" ? this.lift(kg) / LB : kg; },
     // Exact value, 1 decimal (used for body weight, where plate rounding would be wrong).
     showBody(kg) { const v = Math.round((data.settings.unit === "lb" ? kg * LB : kg) * 10) / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); },
-    // Rounds a kg value to the nearest plate step (2.5 kg / 5 lb); used by deload.
-    roundKg(kg) { const step = data.settings.unit === "lb" ? 5 / LB : 2.5; return Math.round(kg / step) * step; },
-    // Increment (kg) to add on progression: a multiple of the plate step, at least one step
-    // (2.5 kg, or 5 lb). 0 stays 0 (e.g. plank).
+    // Rounds a kg value to the nearest 0.5 kg (5 lb in lb mode); used by deload.
+    roundKg(kg) { const step = data.settings.unit === "lb" ? 5 / LB : 0.5; return Math.round(kg / step) * step; },
+    // Increment (kg) to add on progression. kg mode: exactly what you set (any step, e.g. 1 kg dumbbells).
+    // lb mode: a multiple of 5 lb, at least 5. 0 stays 0 (e.g. plank).
     incKg(incKg) {
       if (incKg <= 0) return 0;
       if (data.settings.unit === "lb") return Math.max(5, Math.round((incKg * LB) / 5) * 5) / LB;
-      return Math.max(2.5, Math.round(incKg / 2.5) * 2.5);
+      return incKg;
     },
   };
 
@@ -198,7 +198,7 @@
   }
 
   data = load();
-  // Program weights always sit on a plate step (older saves may hold e.g. 8 kg or 132.3 lb).
+  // In lb mode program weights sit on 5 lb steps; this is a no-op in kg.
   data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Units.snapKg(e.weight); }));
   // Ask the browser not to evict our storage (helps against iOS clearing it); harmless if refused.
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* ignore */ }
@@ -295,7 +295,7 @@
       save();
     },
 
-    // Switching units also snaps every program weight to the new plate step (5 lb / 2.5 kg), so what you see is what is stored.
+    // Switching to lb snaps every program weight to 5 lb so what you see is what is stored (kg is never rounded).
     setUnit(u) {
       data.settings.unit = u === "lb" ? "lb" : "kg";
       data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Units.snapKg(e.weight); }));

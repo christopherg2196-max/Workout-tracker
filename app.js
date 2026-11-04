@@ -104,7 +104,7 @@
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${esc(de.name)}</strong>
-            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 2.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 0.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
           <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
