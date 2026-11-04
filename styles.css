@@ -176,3 +176,9 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 }
 .bwform .btn { margin: 12px 0; padding: 12px; font-size: 16px; }
 .bwdel { margin-left: 8px; color: var(--muted); }
+
+/* ---- Backup ---- */
+.btnrow { display: flex; gap: 12px; }
+.btnrow .btn { margin: 8px 0; }
+.okmsg { color: #1f9d55; font-size: 14px; text-align: center; margin: 4px 0 12px; }
+.remind { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 14px; margin: -4px 4px 8px; }

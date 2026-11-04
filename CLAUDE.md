@@ -16,7 +16,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 1. **Home**: next workout card (name, exercises with sets×reps @ kg), Start Workout button, upcoming workouts list. Next workout is selectable (dropdown; upcoming follows). "Week N of this cycle" tracker with Restart. Deload button drops all weights to 70% (rounded to 0.5 kg, confirm first). Bottom tab bar: Home, History, Progress, Settings.
 2. **In-session**: workout name header, exercise list, set circles per exercise, tap-to-edit weight, notes field, Finish Workout (saves, runs progression).
 3. **Progress**: pick an exercise, line chart of weight over time, range chips (1M/3M/6M/1Y/All); e1RM toggle. Below it, a **Body Weight** section: date + weight inputs, one entry per day (same date overwrites), range chips, line chart, latest value with change vs previous, last 10 entries with delete.
-5. **Settings**: kg / lb switch.
+5. **Settings**: kg / lb switch; Backup section (export, import, last backup date).
 4. **History**: month calendar with trained days marked; tap a day to see that day's workout details.
 
 ## Data model
@@ -37,7 +37,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - [x] 2. In-session tracker + save session + progression
 - [x] 3. Progress chart + History
 - [x] 4. PWA install bits (manifest, service worker, icons). Service worker is network-first with cache fallback, so updates arrive when online. **When adding a new app file, add it to `SHELL` in `sw.js`** so a first offline launch has it. Real SW registration is untestable in the Claude browser pane; verify on localhost in Chrome or on the deployed https site.
-- [ ] 5. Export/import backup
+- [x] 5. Export/import backup (Settings tab). Export = share sheet on iPhone, download elsewhere; file is `{app, version, exportedAt, data}` (current `SCHEMA = 1` in `store.js`). Import validates strictly (`Store.parseBackup`), shows a summary, asks before replacing, and never changes data on a bad file. **If the data shape changes, bump `SCHEMA` and add a migration in `parseBackup`**, and keep the new fields in its whitelist or they will be dropped on import. Home shows a quiet reminder after 30 days without a backup.
 - [ ] 6. Deploy to GitHub Pages, install on iPhone
 - [x] 7. Calendar view in History tab (trained days marked, tap a day for details)
 - [x] 8. Choose next workout; cycle-week tracker; deload (70%) button; skip-exercise checkbox

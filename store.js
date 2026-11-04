@@ -87,7 +87,96 @@
     },
   };
 
+  // ---- Backup file format ----
+  // Bump SCHEMA when the saved data shape changes and add a migration step in parseBackup.
+  const SCHEMA = 1;
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  // Turns backup text into clean app data, or { error }. Only known fields are copied over,
+  // so a hand-edited or corrupted file can't inject anything unexpected.
+  function parseBackup(text) {
+    const check = (cond, msg) => { if (!cond) throw new Error(msg); };
+    const num = (n) => typeof n === "number" && isFinite(n);
+    const arr = (a, what) => { check(Array.isArray(a), `Backup is missing ${what}.`); return a; };
+    try {
+      let obj;
+      try { obj = JSON.parse(text); } catch (e) { throw new Error("That file isn't valid JSON."); }
+      check(obj && obj.app === "workout-tracker" && num(obj.version) && obj.data && typeof obj.data === "object",
+        "This doesn't look like a Workout Tracker backup.");
+      check(obj.version <= SCHEMA, "This backup is from a newer version of the app. Update the app first.");
+      const d = obj.data; // (older versions would be migrated to the current shape here)
+
+      const program = arr(d.program, "the program").map((w) => {
+        check(w && typeof w.id === "string" && typeof w.name === "string", "Backup has a malformed workout.");
+        return {
+          id: w.id, name: w.name,
+          exercises: arr(w.exercises, "exercises").map((e) => {
+            check(e && typeof e.name === "string" && [e.sets, e.repMin, e.repMax, e.weight, e.inc].every(num) && e.weight >= 0,
+              "Backup has a malformed exercise.");
+            return { name: e.name, sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc };
+          }),
+        };
+      });
+      check(program.length > 0, "Backup has no workouts.");
+      check(Number.isInteger(d.rotation) && d.rotation >= 0 && d.rotation < program.length, "Backup has an invalid rotation.");
+
+      const sessions = arr(d.sessions, "the session history").map((s) => {
+        check(s && typeof s.date === "string" && !isNaN(Date.parse(s.date)) && typeof s.workoutId === "string", "Backup has a malformed session.");
+        return {
+          date: s.date, workoutId: s.workoutId,
+          exercises: arr(s.exercises, "session exercises").map((e) => {
+            check(e && typeof e.name === "string" && num(e.weight) && Array.isArray(e.reps) &&
+              e.reps.every((r) => r === null || (num(r) && r >= 0)), "Backup has a malformed logged exercise.");
+            return { name: e.name, weight: e.weight, reps: e.reps.slice(), note: typeof e.note === "string" ? e.note : "", skipped: !!e.skipped };
+          }),
+        };
+      });
+
+      const bodyweight = (d.bodyweight === undefined ? [] : arr(d.bodyweight, "body weight")).map((b) => {
+        check(b && typeof b.date === "string" && DATE_RE.test(b.date) && num(b.kg) && b.kg > 0, "Backup has a malformed body weight entry.");
+        return { date: b.date, kg: b.kg };
+      }).sort((a, b) => (a.date < b.date ? -1 : 1));
+
+      const clean = {
+        program, rotation: d.rotation, sessions, bodyweight,
+        cycleStart: typeof d.cycleStart === "string" && !isNaN(Date.parse(d.cycleStart)) ? d.cycleStart : new Date().toISOString(),
+        settings: { unit: d.settings && d.settings.unit === "lb" ? "lb" : "kg" },
+      };
+      if (typeof d.lastBackup === "string" && !isNaN(Date.parse(d.lastBackup))) clean.lastBackup = d.lastBackup;
+
+      return {
+        data: clean,
+        summary: {
+          sessions: sessions.length, bodyweight: bodyweight.length,
+          lastSession: sessions.length ? sessions[sessions.length - 1].date : null,
+          exportedAt: typeof obj.exportedAt === "string" ? obj.exportedAt : null,
+        },
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+
   window.Store = {
+    parseBackup,
+
+    // Everything except an in-progress workout draft. lastBackup is stamped into the file so a
+    // restore also restores "when did I last back up".
+    exportData() {
+      const copy = JSON.parse(JSON.stringify(data));
+      delete copy.draft;
+      const now = new Date().toISOString();
+      copy.lastBackup = now;
+      return { app: "workout-tracker", version: SCHEMA, exportedAt: now, data: copy };
+    },
+    markBackup() { data.lastBackup = new Date().toISOString(); save(); },
+    // Whole days since the last export, or null if there never was one.
+    daysSinceBackup() {
+      return data.lastBackup ? Math.floor((Date.now() - new Date(data.lastBackup).getTime()) / DAY) : null;
+    },
+    // Replaces all app data with already-validated data from parseBackup. Drops any draft.
+    importData(clean) { data = clean; save(); },
+
     get data() { return data; },
     save,
     // The workout at `offset` positions after the current rotation index.

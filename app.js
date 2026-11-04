@@ -19,6 +19,9 @@
     const lastText = last ? `Last workout: ${new Date(last.date).toLocaleDateString()}` : "No workouts logged yet";
 
     const started = new Date(d.cycleStart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    // Quiet nudge: only once there is something worth losing, and only after a month without a backup.
+    const backupDays = Store.daysSinceBackup();
+    const backupDue = d.sessions.length > 0 && (backupDays === null || backupDays >= 30);
 
     view.innerHTML = `
       <div class="sub">Program</div>
@@ -36,6 +39,7 @@
       <div class="card">${exerciseRows(next)}</div>
       <button class="btn" id="start">${d.draft ? "Resume Workout" : "Start Workout"}</button>
       <button class="btn secondary" id="deload">Deload (70% of all weights)</button>
+      ${backupDue ? `<div class="remind"><span>${backupDays === null ? "You haven't backed up your data yet." : `Last backup was ${backupDays} days ago.`}</span><button class="link small" id="gobackup">Back up</button></div>` : ""}
       <div class="upcoming">
         <h2>Upcoming Workouts</h2>
         ${upcoming.map((w) => `
@@ -47,6 +51,8 @@
       session();
     };
     document.getElementById("pick").onchange = (ev) => { Store.setNext(+ev.target.value); home(); };
+    const gb = document.getElementById("gobackup");
+    if (gb) gb.onclick = () => go("settings");
     document.getElementById("restart").onclick = () => {
       if (confirm("Restart the cycle counter at week 1, starting today?")) { Store.restartCycle(); home(); }
     };
@@ -335,8 +341,73 @@
         <button data-u="kg" class="${u === "kg" ? "on" : ""}">kg</button>
         <button data-u="lb" class="${u === "lb" ? "on" : ""}">lb</button>
       </div>
-      <p class="sub">Applies everywhere. Your logged data isn't changed, only how it's shown. In lb mode, weights go up in 5 or 10 lb steps.</p>`;
+      <p class="sub">Applies everywhere. Your logged data isn't changed, only how it's shown. In lb mode, weights go up in 5 or 10 lb steps.</p>
+
+      <h2>Backup</h2>
+      <p class="sub">Your data is stored only on this device. Export a copy to Files, iCloud, AirDrop or email, and import it to restore.</p>
+      <p class="sub"><strong>${lastBackupText()}</strong></p>
+      <div class="btnrow">
+        <button class="btn secondary" id="export">Export backup</button>
+        <button class="btn secondary" id="import">Import backup</button>
+      </div>
+      <input type="file" id="importfile" accept=".json,application/json" hidden>
+      ${backupMsg ? `<p class="${backupMsg.ok ? "okmsg" : "errmsg"}">${esc(backupMsg.text)}</p>` : ""}`;
+    backupMsg = null; // shown once
+
     view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
+    document.getElementById("export").onclick = exportBackup;
+    document.getElementById("import").onclick = () => document.getElementById("importfile").click();
+    document.getElementById("importfile").onchange = importBackup;
+  }
+
+  let backupMsg = null; // { ok, text } feedback shown under the Backup buttons
+  const lastBackupText = () => {
+    const days = Store.daysSinceBackup();
+    return days === null ? "Last backup: never" : days === 0 ? "Last backup: today" : `Last backup: ${days} day${days === 1 ? "" : "s"} ago`;
+  };
+
+  function exportBackup() {
+    const file = new File([JSON.stringify(Store.exportData(), null, 2)], `workout-backup-${localDate()}.json`, { type: "application/json" });
+    const done = (text) => { Store.markBackup(); backupMsg = { ok: true, text }; settings(); };
+    const download = () => {
+      const url = URL.createObjectURL(file);
+      const a = document.createElement("a");
+      a.href = url; a.download = file.name;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      done(`Backup downloaded as ${file.name}.`);
+    };
+    // Share sheet on iPhone (Save to Files / AirDrop / Mail); plain download elsewhere.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: "Workout backup" })
+        .then(() => done("Backup saved."))
+        .catch((e) => { if (e && e.name !== "AbortError") download(); }); // AbortError = you closed the sheet
+    } else {
+      download();
+    }
+  }
+
+  async function importBackup(ev) {
+    const input = ev.target, file = input.files[0];
+    input.value = ""; // lets the same file be picked again later
+    if (!file) return;
+    const fail = (text) => { backupMsg = { ok: false, text }; settings(); };
+    if (file.size > 10 * 1024 * 1024) return fail("That file is too large to be a backup.");
+
+    const res = Store.parseBackup(await file.text());
+    if (res.error) return fail(`Not imported: ${res.error} Your data was not changed.`);
+
+    const s = res.summary, day = (iso) => new Date(iso).toLocaleDateString();
+    const msg = `Replace ALL data on this device with this backup?\n\n` +
+      `${s.sessions} logged workout${s.sessions === 1 ? "" : "s"}, ${s.bodyweight} body weight entr${s.bodyweight === 1 ? "y" : "ies"}` +
+      (s.lastSession ? `, last workout ${day(s.lastSession)}` : "") + `.\n` +
+      (s.exportedAt ? `Backup made ${day(s.exportedAt)}.\n` : "") +
+      `\nWhat's on this device now will be lost. This can't be undone.`;
+    if (!confirm(msg)) return;
+
+    Store.importData(res.data);
+    backupMsg = { ok: true, text: `Backup restored: ${s.sessions} workout${s.sessions === 1 ? "" : "s"} and ${s.bodyweight} body weight entr${s.bodyweight === 1 ? "y" : "ies"}.` };
+    settings();
   }
 
   const routes = {
