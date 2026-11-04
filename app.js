@@ -104,7 +104,7 @@
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${esc(de.name)}</strong>
-            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 0.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 2.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
           <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
@@ -301,6 +301,7 @@
   const localDate = (dt = new Date()) =>
     `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   const dateMs = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d, 12).getTime(); };
+  const bwDateText = (s) => (s ? new Date(dateMs(s)).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "Pick a date");
   const bw = { range: "3M", date: null, val: "", err: "" };
 
   function bodyweightSection() {
@@ -320,7 +321,7 @@
       <h2>Body Weight</h2>
       <div class="card bwform">
         <div class="bwrow">
-          <label>Date<input type="date" id="bwdate" value="${bw.date}"></label>
+          <label>Date<span class="datebox"><span class="dateshow" id="bwshow">${esc(bwDateText(bw.date))}</span><input type="date" id="bwdate" value="${bw.date}"></span></label>
           <label>Weight (${Units.label})<input type="number" id="bwval" inputmode="decimal" step="0.1" min="0" placeholder="0.0" value="${esc(bw.val)}"></label>
         </div>
         <button class="btn" id="bwadd">Save weight</button>
@@ -337,7 +338,8 @@
   }
 
   function bodyweightBind() {
-    document.getElementById("bwdate").oninput = (ev) => { bw.date = ev.target.value; };
+    // The visible text is our own span (vertically centred like the weight box); the real date input sits invisibly on top and opens the picker.
+    document.getElementById("bwdate").onchange = document.getElementById("bwdate").oninput = (ev) => { bw.date = ev.target.value; document.getElementById("bwshow").textContent = bwDateText(bw.date); };
     document.getElementById("bwval").oninput = (ev) => { bw.val = ev.target.value; };
     document.getElementById("bwadd").onclick = () => {
       const v = parseFloat(bw.val);
@@ -400,7 +402,7 @@
   let edWorkout = 0; // index of the workout being edited
   let edArmed = -1;  // exercise index whose Remove button is waiting for a second tap (no popup: dialogs are unreliable in some browsers)
   // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
-  const incShow = (kg) => (kg <= 0 ? "0" : Units.unit === "lb" ? String(Math.max(5, Math.round(Units.toDisplay(kg) / 5) * 5)) : Units.show(kg));
+  const incShow = (kg) => (kg <= 0 ? "0" : Units.showBody(Units.incKg(kg)));
 
   function editor() {
     const d = Store.data;
