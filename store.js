@@ -38,7 +38,10 @@
   ];
 
   function fresh() {
-    return { program: JSON.parse(JSON.stringify(DEFAULT_PROGRAM)), rotation: 0, sessions: [], cycleStart: new Date().toISOString() };
+    return {
+      program: JSON.parse(JSON.stringify(DEFAULT_PROGRAM)), rotation: 0, sessions: [],
+      cycleStart: new Date().toISOString(), settings: { unit: "kg" }, bodyweight: [],
+    };
   }
 
   function load() {
@@ -48,6 +51,8 @@
         const d = JSON.parse(raw);
         // Older saves have no cycle start: use the first logged session, else now.
         if (!d.cycleStart) d.cycleStart = (d.sessions && d.sessions[0] && d.sessions[0].date) || new Date().toISOString();
+        if (!d.settings) d.settings = { unit: "kg" };
+        if (!d.bodyweight) d.bodyweight = [];
         return d;
       }
     } catch (e) { /* storage blocked or corrupt: fall back to fresh */ }
@@ -61,6 +66,26 @@
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
   }
+
+  // All weights are stored in kg. Units converts for display/input only, so history stays
+  // consistent when you switch kg/lb and nothing is ever rewritten.
+  const LB = 2.20462262;
+  window.Units = {
+    get unit() { return data.settings.unit; },
+    get label() { return data.settings.unit; },
+    toDisplay(kg) { return data.settings.unit === "lb" ? kg * LB : kg; },
+    toKg(v) { return data.settings.unit === "lb" ? v / LB : v; },
+    // Display string without the unit label: 1 decimal, trailing .0 dropped.
+    show(kg) { const v = Math.round(this.toDisplay(kg) * 10) / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); },
+    // Rounds a kg value to the nearest plate-friendly step in the current unit (0.5 kg / 1 lb).
+    roundKg(kg) { const step = data.settings.unit === "lb" ? 1 / LB : 0.5; return Math.round(kg / step) * step; },
+    // Increment (kg) to add on progression. In lb mode the kg increment maps to 2.5-lb steps
+    // (2.5 kg -> 5 lb, 5 kg -> 10 lb) so weights don't become 5.5-lb jumps.
+    incKg(incKg) {
+      if (data.settings.unit !== "lb") return incKg;
+      return Math.max(2.5, Math.round((incKg * LB) / 2.5) * 2.5) / LB;
+    },
+  };
 
   window.Store = {
     get data() { return data; },
@@ -79,9 +104,23 @@
     cycleWeek() { return Math.floor((Date.now() - new Date(data.cycleStart).getTime()) / (7 * DAY)) + 1; },
     restartCycle() { data.cycleStart = new Date().toISOString(); save(); },
 
-    // Scale every program weight (default 70%), rounded to the nearest 0.5 kg.
+    // Scale every program weight (default 70%), rounded to 0.5 kg (or 1 lb in lb mode).
     deload(factor = 0.7) {
-      data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Math.round(e.weight * factor * 2) / 2; }));
+      data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Units.roundKg(e.weight * factor); }));
+      save();
+    },
+
+    setUnit(u) { data.settings.unit = u === "lb" ? "lb" : "kg"; save(); },
+
+    // Body weight log: one entry per calendar day (date = "YYYY-MM-DD"), stored in kg, kept sorted.
+    addBodyweight(date, kg) {
+      data.bodyweight = data.bodyweight.filter((b) => b.date !== date);
+      data.bodyweight.push({ date, kg });
+      data.bodyweight.sort((a, b) => (a.date < b.date ? -1 : 1));
+      save();
+    },
+    removeBodyweight(date) {
+      data.bodyweight = data.bodyweight.filter((b) => b.date !== date);
       save();
     },
 
@@ -113,7 +152,7 @@
           de.reps = de.reps.map(() => null);
           return;
         }
-        w.exercises[i].weight = Progression.nextWeight(w.exercises[i], de.weight, de.reps);
+        w.exercises[i].weight = Progression.nextWeight(w.exercises[i], de.weight, de.reps, Units.incKg(w.exercises[i].inc));
       });
       data.sessions.push({ date: new Date().toISOString(), workoutId: d.workoutId, exercises: d.exercises });
       // Continue the rotation from the workout just done (it may not have been the default next one).

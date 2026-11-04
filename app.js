@@ -1,13 +1,13 @@
-// Views + tiny tab router. Milestone 1: Home screen only; other tabs are placeholders.
+// Views + tiny tab router: Home, session tracker, History (calendar), Progress (+ body weight), Settings.
+// Weights are stored in kg; always display through Units.show / Units.label.
 (function () {
   const view = document.getElementById("view");
-  const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
   function exerciseRows(w) {
     return w.exercises.map((e) => {
       const reps = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
-      return `<div class="row"><span>${e.name}</span><span class="detail">${e.sets}×${reps} ${fmt(e.weight)}kg</span></div>`;
+      return `<div class="row"><span>${e.name}</span><span class="detail">${e.sets}×${reps} ${Units.show(e.weight)}${Units.label}</span></div>`;
     }).join("");
   }
 
@@ -53,8 +53,8 @@
     document.getElementById("deload").onclick = () => {
       if (Store.data.draft) return alert("Finish or discard your current workout before deloading.");
       const e = next.exercises[0];
-      const after = Math.round(e.weight * 0.7 * 2) / 2;
-      if (!confirm(`Drop every exercise to 70% of its current weight?\n\nExample: ${e.name} ${fmt(e.weight)}kg → ${fmt(after)}kg.\nThis can't be undone.`)) return;
+      const after = Units.roundKg(e.weight * 0.7);
+      if (!confirm(`Drop every exercise to 70% of its current weight?\n\nExample: ${e.name} ${Units.show(e.weight)}${Units.label} → ${Units.show(after)}${Units.label}.\nThis can't be undone.`)) return;
       Store.deload(0.7);
       home();
     };
@@ -87,7 +87,7 @@
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${de.name}</strong>
-            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${fmt(de.weight)}" ${de.skipped ? "disabled" : ""}>kg</span>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
           <div class="sets">
@@ -129,13 +129,14 @@
         window.scrollTo(0, y);
       } else if (ev.target.classList.contains("wt")) {
         // Snap the box back to the stored value if the entry was empty/invalid.
-        ev.target.value = fmt(d.exercises[+ev.target.dataset.i].weight);
+        ev.target.value = Units.show(d.exercises[+ev.target.dataset.i].weight);
       }
     };
     view.oninput = (ev) => {
       if (ev.target.classList.contains("wt")) {
         const v = parseFloat(ev.target.value);
-        if (!isNaN(v) && v >= 0) { d.exercises[+ev.target.dataset.i].weight = v; save(); }
+        // The box shows the chosen unit; the draft is stored in kg.
+        if (!isNaN(v) && v >= 0) { d.exercises[+ev.target.dataset.i].weight = Units.toKg(v); save(); }
       } else if (ev.target.classList.contains("note")) {
         d.exercises[+ev.target.dataset.i].note = ev.target.value;
         save();
@@ -164,10 +165,6 @@
     showErrors = false;
     view.onclick = view.onchange = view.oninput = null;
     go("home");
-  }
-
-  function placeholder(title) {
-    return () => { view.innerHTML = `<h1>${title}</h1><p class="placeholder">Coming soon</p>`; };
   }
 
   // ---- History ----
@@ -220,7 +217,7 @@
           <div class="row"><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><span class="sub">${new Date(s.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
           ${s.exercises.map((e) => `
             <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
-            <span class="detail">${e.skipped ? "Skipped" : `${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}`}</span></div>`).join("")}
+            <span class="detail">${e.skipped ? "Skipped" : `${Units.show(e.weight)}${Units.label} × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}`}</span></div>`).join("")}
         </div>`).join("") : `<p class="sub">No workout logged this day.</p>`}`;
 
     const shift = (d) => { const dt = new Date(cal.y, cal.m + d, 1); cal.y = dt.getFullYear(); cal.m = dt.getMonth(); history(); };
@@ -247,30 +244,106 @@
       if (e && e.reps.some((r) => r !== null)) rows.push({ t: new Date(s.date).getTime(), e });
     });
     const inRange = rows.filter((r) => r.t >= cutoff);
-    const series = [{ label: "Weight", color: "#f08a1c", points: inRange.map((r) => ({ t: r.t, v: r.e.weight })) }];
-    if (prog.e1rm) series.push({ label: "e1RM", color: "#e10613", points: inRange.filter((r) => e1rmOf(r.e) > 0).map((r) => ({ t: r.t, v: +e1rmOf(r.e).toFixed(1) })) });
+    const series = [{ label: "Weight", color: "#f08a1c", points: inRange.map((r) => ({ t: r.t, v: +Units.toDisplay(r.e.weight).toFixed(1) })) }];
+    if (prog.e1rm) series.push({ label: "e1RM", color: "#e10613", points: inRange.filter((r) => e1rmOf(r.e) > 0).map((r) => ({ t: r.t, v: +Units.toDisplay(e1rmOf(r.e)).toFixed(1) })) });
 
     const latest = rows[rows.length - 1];
     view.innerHTML = `
       <h1>Progress</h1>
       <select id="exsel">${names.map((n) => `<option ${n === prog.ex ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
       <div class="chips">${Object.keys(RANGES).map((r) => `<button data-r="${r}" class="${r === prog.range ? "on" : ""}">${r}</button>`).join("")}</div>
-      <div class="big">${latest ? fmt(latest.e.weight) + "kg" : "–"}</div>
+      <div class="big">${latest ? Units.show(latest.e.weight) + Units.label : "–"}</div>
       <div class="sub">${latest ? "Last: " + new Date(latest.t).toLocaleDateString() : "No sessions for this exercise yet"}</div>
       <div class="card" style="padding:12px">${Chart.line(series)}</div>
       <label class="tog"><span><i class="dot" style="background:#f08a1c"></i>Weight</span><span class="sub">always shown</span></label>
-      <label class="tog"><span><i class="dot" style="background:#e10613"></i>e1RM</span><input type="checkbox" id="e1" ${prog.e1rm ? "checked" : ""}></label>`;
+      <label class="tog"><span><i class="dot" style="background:#e10613"></i>e1RM</span><input type="checkbox" id="e1" ${prog.e1rm ? "checked" : ""}></label>
+      ${bodyweightSection()}`;
 
     document.getElementById("exsel").onchange = (ev) => { prog.ex = ev.target.value; progress(); };
     document.getElementById("e1").onchange = (ev) => { prog.e1rm = ev.target.checked; progress(); };
-    view.querySelectorAll(".chips button").forEach((b) => (b.onclick = () => { prog.range = b.dataset.r; progress(); }));
+    view.querySelectorAll(".chips button[data-r]").forEach((b) => (b.onclick = () => { prog.range = b.dataset.r; progress(); }));
+    bodyweightBind();
+  }
+
+  // ---- Body weight tracker (lives under the lift chart on the Progress tab) ----
+  const localDate = (dt = new Date()) =>
+    `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  const dateMs = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d, 12).getTime(); };
+  const bw = { range: "3M", date: null, val: "", err: "" };
+
+  function bodyweightSection() {
+    if (!bw.date) bw.date = localDate();
+    const all = Store.data.bodyweight;
+    const cutoff = RANGES[bw.range] === Infinity ? 0 : Date.now() - RANGES[bw.range] * 86400000;
+    const pts = all.filter((b) => dateMs(b.date) >= cutoff).map((b) => ({ t: dateMs(b.date), v: +Units.toDisplay(b.kg).toFixed(1) }));
+    const latest = all[all.length - 1], prev = all[all.length - 2];
+    let delta = "";
+    if (latest && prev) {
+      const dv = Units.toDisplay(latest.kg) - Units.toDisplay(prev.kg);
+      delta = ` · ${dv > 0 ? "+" : dv < 0 ? "−" : ""}${Math.abs(dv).toFixed(1)}${Units.label} since previous entry`;
+    }
+    const fmtDate = (s) => new Date(dateMs(s)).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+
+    return `
+      <h2>Body Weight</h2>
+      <div class="card bwform">
+        <div class="bwrow">
+          <label>Date<input type="date" id="bwdate" value="${bw.date}"></label>
+          <label>Weight (${Units.label})<input type="number" id="bwval" inputmode="decimal" step="0.1" min="0" placeholder="0.0" value="${esc(bw.val)}"></label>
+        </div>
+        <button class="btn" id="bwadd">Save weight</button>
+        ${bw.err ? `<p class="errmsg">${esc(bw.err)}</p>` : ""}
+      </div>
+      <div class="chips">${Object.keys(RANGES).map((r) => `<button data-b="${r}" class="${r === bw.range ? "on" : ""}">${r}</button>`).join("")}</div>
+      <div class="big">${latest ? Units.show(latest.kg) + Units.label : "–"}</div>
+      <div class="sub">${latest ? `Last: ${fmtDate(latest.date)}${delta}` : "No body weight logged yet"}</div>
+      <div class="card" style="padding:12px">${Chart.line([{ label: "Body weight", color: "#2f7de1", points: pts }])}</div>
+      ${all.length ? `<div class="card">${all.slice().reverse().slice(0, 10).map((b) => `
+        <div class="row"><span>${fmtDate(b.date)}</span>
+        <span class="detail">${Units.show(b.kg)}${Units.label} <button class="link small bwdel" data-d="${b.date}" aria-label="Delete entry">✕</button></span></div>`).join("")}
+        ${all.length > 10 ? `<div class="sub" style="padding:8px 0">Showing latest 10 of ${all.length}</div>` : ""}</div>` : ""}`;
+  }
+
+  function bodyweightBind() {
+    document.getElementById("bwdate").oninput = (ev) => { bw.date = ev.target.value; };
+    document.getElementById("bwval").oninput = (ev) => { bw.val = ev.target.value; };
+    document.getElementById("bwadd").onclick = () => {
+      const v = parseFloat(bw.val);
+      if (!bw.date) bw.err = "Pick a date.";
+      else if (isNaN(v) || v <= 0 || v > 1000) bw.err = "Enter your weight as a positive number.";
+      else {
+        Store.addBodyweight(bw.date, Units.toKg(v));
+        bw.val = "";
+        bw.date = localDate(); // next entry defaults to today again
+        bw.err = "";
+      }
+      progress();
+    };
+    view.querySelectorAll(".chips button[data-b]").forEach((b) => (b.onclick = () => { bw.range = b.dataset.b; progress(); }));
+    view.querySelectorAll(".bwdel").forEach((b) => (b.onclick = () => {
+      if (confirm("Delete this body weight entry?")) { Store.removeBodyweight(b.dataset.d); progress(); }
+    }));
+  }
+
+  // ---- Settings ----
+  function settings() {
+    const u = Units.unit;
+    view.innerHTML = `
+      <h1>Settings</h1>
+      <h2>Units</h2>
+      <div class="seg" role="group" aria-label="Weight units">
+        <button data-u="kg" class="${u === "kg" ? "on" : ""}">kg</button>
+        <button data-u="lb" class="${u === "lb" ? "on" : ""}">lb</button>
+      </div>
+      <p class="sub">Applies everywhere. Your logged data isn't changed, only how it's shown. In lb mode, weights go up in 5 or 10 lb steps.</p>`;
+    view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
   }
 
   const routes = {
     home,
     history,
     progress,
-    settings: placeholder("Settings"),
+    settings,
   };
 
   function go(tab) {
