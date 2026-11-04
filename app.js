@@ -4,10 +4,15 @@
   const view = document.getElementById("view");
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
+  // Small heading shown whenever the exercise type changes (core lifts come first in the program).
+  const typeLabel = (e) => (e.type === "assistance" ? "Assistance" : "Core");
+  const typeHead = (list, i) => (i === 0 || typeLabel(list[i - 1]) !== typeLabel(list[i])
+    ? `<div class="grp">${typeLabel(list[i])}</div>` : "");
+
   function exerciseRows(w) {
-    return w.exercises.map((e) => {
+    return w.exercises.map((e, i) => {
       const reps = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
-      return `<div class="row"><span>${e.name}</span><span class="detail">${e.sets}×${reps} ${Units.show(e.weight)}${Units.label}</span></div>`;
+      return `${typeHead(w.exercises, i)}<div class="row"><span>${e.name}</span><span class="detail">${e.sets}×${reps} ${Units.show(e.weight)}${Units.label}</span></div>`;
     }).join("");
   }
 
@@ -93,7 +98,7 @@
       ${d.exercises.map((de, i) => {
         const e = w.exercises[i];
         const range = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
-        return `
+        return `${typeHead(w.exercises, i)}
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${de.name}</strong>
@@ -124,7 +129,7 @@
       const i = +b.dataset.i, s = +b.dataset.s;
       const e = w.exercises[i];
       const cur = d.exercises[i].reps[s];
-      d.exercises[i].reps[s] = Progression.nextRep(cur, aims[i][s], e.repMax);
+      d.exercises[i].reps[s] = Progression.nextRep(cur, aims[i][s], e.repMax, e.step || 1);
       save();
       const y = window.scrollY;
       session();

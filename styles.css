@@ -186,3 +186,8 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 /* ---- Aim line ---- */
 .aim { color: var(--muted); font-size: 14px; margin-top: 6px; }
 .aim strong { color: var(--text); }
+
+/* Core / Assistance group headings */
+.grp { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 4px 4px; }
+.card .grp { margin: 10px 0 2px; }
+.card .grp:first-child { margin-top: 2px; }

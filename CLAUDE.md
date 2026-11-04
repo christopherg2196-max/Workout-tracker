@@ -21,7 +21,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 4. **History**: month calendar with trained days marked; tap a day to see that day's workout details.
 
 ## Data model
-- `program`: 4 workouts, each with exercises `{name, sets, repMin, repMax, weight, increment}`.
+- `program`: 4 workouts, each with exercises `{name, type: "core"|"assistance", sets, repMin, repMax, weight, inc, step}`. Core lifts are listed first; Home and the session show Core / Assistance headings. `step` = reps per tap (default 1; plank is seconds, step 5).
 - `state`: rotation index, `cycleStart` (ISO date, drives the weeks counter), `settings: {unit}`, `bodyweight: [{date:"YYYY-MM-DD", kg}]` (sorted).
 - `sessions[]`: `{date, workoutId, exercises:[{name, weight, reps:[...], note, skipped}]}`. Skipped exercises log no reps and get no progression. At least one exercise must be done to finish.
 
@@ -30,7 +30,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - `manifest.webmanifest`, `sw.js` (offline cache), icons (180/512 px)
 
 ## Open items
-- Exact exercise list, rep ranges, starting weights for the 4 workouts (propose defaults, user edits).
+- Final exercise list and rep ranges are in `DEFAULT_PROGRAM` (user-supplied). Starting weights are my estimates: correct them in the weight box on first use.
 - Default increments (e.g. +2.5 kg upper, +5 kg lower).
 
 ## Checklist

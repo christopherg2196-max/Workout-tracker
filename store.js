@@ -2,38 +2,43 @@
 (function () {
   const KEY = "workout-tracker-v1";
 
-  // Default starting program: Upper/Lower x2, kg, double progression.
-  // inc = kg added once the top of the rep range is hit on every set.
-  const ex = (name, sets, repMin, repMax, weight, inc) => ({ name, sets, repMin, repMax, weight, inc });
+  // Final program: Upper/Lower x2, kg, double progression. Core lifts first, then assistance.
+  // type = "core" | "assistance"; inc = kg added once the top of the rep range is hit on every set;
+  // step = how much one tap changes reps (default 1; plank counts seconds, so 5).
+  // Starting weights are estimates: change them in-session (the weight box) on day one.
+  const ex = (type, name, sets, repMin, repMax, weight, inc, step = 1) => ({ name, type, sets, repMin, repMax, weight, inc, step });
+  const C = "core", A = "assistance";
 
   const DEFAULT_PROGRAM = [
     { id: "UA", name: "Upper A", exercises: [
-      ex("Bench Press", 4, 6, 8, 60, 2.5),
-      ex("Barbell Row", 4, 6, 8, 55, 2.5),
-      ex("Overhead Press", 3, 8, 10, 35, 2.5),
-      ex("Lat Pulldown", 3, 8, 12, 50, 2.5),
-      ex("Triceps Pushdown", 3, 10, 15, 25, 2.5),
+      ex(C, "Bench Press", 4, 5, 6, 60, 2.5),
+      ex(C, "Chest-Supported Row", 4, 6, 8, 50, 2.5),
+      ex(C, "Overhead Press", 3, 6, 8, 35, 2.5),
+      ex(A, "Pull-ups", 3, 8, 10, 0, 2.5),
+      ex(A, "Triceps Pushdown", 3, 10, 12, 25, 2.5),
+      ex(A, "Dumbbell Curl", 3, 10, 12, 10, 1),
     ]},
     { id: "LA", name: "Lower A", exercises: [
-      ex("Squat", 4, 6, 8, 80, 5),
-      ex("Romanian Deadlift", 3, 8, 10, 70, 5),
-      ex("Leg Press", 3, 10, 12, 120, 5),
-      ex("Leg Curl", 3, 10, 12, 40, 2.5),
-      ex("Calf Raise", 4, 12, 15, 60, 2.5),
+      ex(C, "Squat", 4, 5, 6, 80, 5),
+      ex(C, "Deadlift", 3, 4, 6, 100, 5),
+      ex(A, "Standing Calf Raise", 3, 10, 15, 60, 2.5),
+      ex(A, "Hip Abduction Machine", 3, 12, 15, 40, 2.5),
+      ex(A, "Crunches", 3, 15, 25, 0, 2.5),
     ]},
     { id: "UB", name: "Upper B", exercises: [
-      ex("Incline Dumbbell Press", 4, 8, 10, 24, 2),
-      ex("Seated Cable Row", 4, 8, 10, 50, 2.5),
-      ex("Dumbbell Shoulder Press", 3, 8, 12, 18, 2),
-      ex("Pull-up / Assisted", 3, 6, 10, 0, 2.5),
-      ex("Biceps Curl", 3, 10, 15, 12, 1),
+      ex(C, "Incline Dumbbell Press", 4, 8, 10, 24, 2),
+      ex(C, "Bent Over Row", 4, 8, 10, 50, 2.5),
+      ex(A, "Lat Pulldown", 3, 10, 12, 50, 2.5),
+      ex(A, "Dumbbell Lateral Raise", 4, 12, 15, 8, 1),
+      ex(A, "Face Pulls", 3, 12, 15, 20, 2.5),
+      ex(A, "Overhead Triceps Extension", 3, 10, 12, 20, 2.5),
     ]},
     { id: "LB", name: "Lower B", exercises: [
-      ex("Deadlift", 3, 4, 6, 100, 5),
-      ex("Front Squat / Hack Squat", 3, 8, 10, 60, 5),
-      ex("Walking Lunge", 3, 10, 12, 16, 2),
-      ex("Hip Thrust", 3, 8, 12, 80, 5),
-      ex("Seated Calf Raise", 4, 12, 15, 40, 2.5),
+      ex(C, "Leg Press", 4, 8, 10, 120, 5),
+      ex(C, "Bulgarian Split Squat (each leg)", 3, 8, 10, 16, 2),
+      ex(A, "Leg Extension", 3, 12, 15, 40, 2.5),
+      ex(A, "Seated Leg Curl", 3, 12, 15, 40, 2.5),
+      ex(A, "Plank (seconds)", 3, 30, 60, 0, 0, 5),
     ]},
   ];
 
@@ -113,7 +118,7 @@
           exercises: arr(w.exercises, "exercises").map((e) => {
             check(e && typeof e.name === "string" && [e.sets, e.repMin, e.repMax, e.weight, e.inc].every(num) && e.weight >= 0,
               "Backup has a malformed exercise.");
-            return { name: e.name, sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc };
+            return { name: e.name, type: e.type === "assistance" ? "assistance" : "core", sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc, step: num(e.step) && e.step >= 1 ? e.step : 1 };
           }),
         };
       });
