@@ -10,5 +10,35 @@
     return hitTop ? clean(sessionWeight + incKg) : clean(sessionWeight);
   }
 
-  window.Progression = { nextWeight };
+  // Reps to aim for in each set today, given the program weight and the last time this lift was
+  // logged (`last` = { weight, reps } or null). Double progression:
+  //  - new or different weight (first time, or the weight just went up): start at the bottom of the range
+  //  - same weight: last time's reps + 1 per set, capped at the top of the range
+  //  - a set below the bottom of the range counts as failed: aim to repeat it, no +1
+  function aim(exercise, weightKg, last) {
+    const clamp = (v) => Math.min(exercise.repMax, Math.max(1, v));
+    if (!last || Math.abs(last.weight - weightKg) > 0.01) return Array(exercise.sets).fill(clamp(exercise.repMin));
+    return Array.from({ length: exercise.sets }, (_, i) => {
+      const r = last.reps[Math.min(i, last.reps.length - 1)];
+      return clamp(r < exercise.repMin ? r : r + 1);
+    });
+  }
+
+  // Order a circle steps through on repeated taps: the aim first, then up to the top of the
+  // range (so a rep range max can always be logged), then down through misses to 0, then empty.
+  function repCycle(aimReps, repMax) {
+    const seq = [aimReps];
+    for (let v = aimReps + 1; v <= repMax; v++) seq.push(v);
+    for (let v = aimReps - 1; v >= 0; v--) seq.push(v);
+    return seq;
+  }
+  // The value after `cur` in the cycle (null = empty circle, which is also where the cycle ends).
+  function nextRep(cur, aimReps, repMax) {
+    const seq = repCycle(aimReps, repMax);
+    if (cur === null) return seq[0];
+    const i = seq.indexOf(cur);
+    return i >= 0 && i + 1 < seq.length ? seq[i + 1] : null;
+  }
+
+  window.Progression = { nextWeight, aim, repCycle, nextRep };
 })();

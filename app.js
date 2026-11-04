@@ -67,8 +67,8 @@
   }
 
   // ---- In-session tracker ----
-  // Tap an empty circle: logs the top of the rep range. Each further tap lowers it by one
-  // (partial/failed reps); after 0 it clears back to empty.
+  // Tap an empty circle: logs the aim for that set (see Progression.aim). Further taps step through
+  // Progression.repCycle: up to the top of the rep range, then down to 0 (failed), then empty.
   let showErrors = false; // true after a blocked Finish attempt: outlines untapped circles
   function session() {
     const d = Store.data.draft;
@@ -80,6 +80,10 @@
     const hasWork = d.exercises.some((x) => !x.skipped);
     const canFinish = complete && hasWork;
     if (canFinish) showErrors = false;
+    // Reps to aim for per set. Based on the program weight (not the weight box), so the aims stay
+    // put while you edit a weight or tap circles.
+    const aims = d.exercises.map((de, i) => Progression.aim(w.exercises[i], w.exercises[i].weight, Store.lastLogged(de.name)));
+    const aimText = (a) => (a.every((v) => v === a[0]) ? `${a[0]} reps per set` : `${a.join(", ")} reps`);
 
     view.innerHTML = `
       <div class="head">
@@ -95,13 +99,14 @@
             <strong>${de.name}</strong>
             <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
+          <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
           <div class="sets">
             ${de.reps.map((r, s) => {
               const done = r !== null;
-              const full = done && r >= e.repMax;
+              const full = done && r >= aims[i][s]; // solid red = met or beat the aim; light red = fell short
               const cls = done ? (full ? "full" : "part") : showErrors && !de.skipped ? "err" : "";
-              return `<button class="set ${cls}" data-i="${i}" data-s="${s}" ${de.skipped ? "disabled" : ""}>${done ? r : e.repMax}</button>`;
+              return `<button class="set ${cls}" data-i="${i}" data-s="${s}" ${de.skipped ? "disabled" : ""}>${done ? r : aims[i][s]}</button>`;
             }).join("")}
           </div>
           <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${esc(de.note)}</textarea>
@@ -109,7 +114,7 @@
       }).join("")}
       <button class="btn ${canFinish ? "" : "blocked"}" id="finish">Finish Workout</button>
       ${showErrors && !canFinish ? `<p class="errmsg">${hasWork
-        ? "Tap every set, or tick Skip, before finishing. Tap a circle again to lower the reps; a 0 counts as failed."
+        ? "Tap every set, or tick Skip, before finishing. Keep tapping a circle to change its reps; a 0 counts as failed."
         : "You skipped every exercise. Log at least one to finish."}</p>` : ""}`;
 
     const save = () => Store.save();
@@ -119,7 +124,7 @@
       const i = +b.dataset.i, s = +b.dataset.s;
       const e = w.exercises[i];
       const cur = d.exercises[i].reps[s];
-      d.exercises[i].reps[s] = cur === null ? e.repMax : cur > 0 ? cur - 1 : null;
+      d.exercises[i].reps[s] = Progression.nextRep(cur, aims[i][s], e.repMax);
       save();
       const y = window.scrollY;
       session();

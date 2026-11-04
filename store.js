@@ -174,6 +174,14 @@
     daysSinceBackup() {
       return data.lastBackup ? Math.floor((Date.now() - new Date(data.lastBackup).getTime()) / DAY) : null;
     },
+    // Most recent logged (not skipped, fully tapped) result for an exercise: { weight, reps } or null.
+    lastLogged(name) {
+      for (let i = data.sessions.length - 1; i >= 0; i--) {
+        const e = data.sessions[i].exercises.find((x) => x.name === name);
+        if (e && !e.skipped && e.reps.length && e.reps.every((r) => r !== null)) return { weight: e.weight, reps: e.reps };
+      }
+      return null;
+    },
     // Replaces all app data with already-validated data from parseBackup. Drops any draft.
     importData(clean) { data = clean; save(); },
 

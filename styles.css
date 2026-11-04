@@ -182,3 +182,7 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 .btnrow .btn { margin: 8px 0; }
 .okmsg { color: #1f9d55; font-size: 14px; text-align: center; margin: 4px 0 12px; }
 .remind { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 14px; margin: -4px 4px 8px; }
+
+/* ---- Aim line ---- */
+.aim { color: var(--muted); font-size: 14px; margin-top: 6px; }
+.aim strong { color: var(--text); }
