@@ -379,6 +379,7 @@
 
   // ---- Program editor (Settings > Edit program) ----
   let edWorkout = 0; // index of the workout being edited
+  let edArmed = -1;  // exercise index whose Remove button is waiting for a second tap (no popup: dialogs are unreliable in some browsers)
   // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
   const incShow = (kg) => (kg <= 0 ? "0" : Units.unit === "lb" ? String(Math.max(2.5, Math.round(Units.toDisplay(kg) / 2.5) * 2.5)) : Units.show(kg));
 
@@ -392,7 +393,7 @@
     view.innerHTML = `
       <div class="head"><button class="link" id="edback">&#8249; Settings</button></div>
       <h1>Edit program</h1>
-      ${locked ? `<p class="errmsg">Finish or discard your current workout before editing the program.</p>` : ""}
+      ${locked ? `<p class="errmsg">Finish or discard your current workout before editing the program. <button class="link small" id="eddiscard">${edArmed === -2 ? "Tap again to discard it" : "Discard it now"}</button></p>` : ""}
       <select class="badge pick" id="edw" aria-label="Workout to edit">
         ${d.program.map((p, i) => `<option value="${i}" ${i === edWorkout ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
       </select>
@@ -412,30 +413,36 @@
           <div class="btnrow">
             <button class="btn secondary small" data-act="up" data-i="${i}" aria-label="Move up">&#9650;</button>
             <button class="btn secondary small" data-act="down" data-i="${i}" aria-label="Move down">&#9660;</button>
-            <button class="btn secondary small" data-act="del" data-i="${i}">Remove</button>
+            <button class="btn ${edArmed === i ? "" : "secondary"} small" data-act="del" data-i="${i}">${edArmed === i ? "Tap again to remove" : "Remove"}</button>
           </div>
         </div>`).join("")}
       <button class="btn secondary" id="edadd">Add exercise</button>`;
 
     document.getElementById("edback").onclick = settings;
-    document.getElementById("edw").onchange = (ev) => { edWorkout = +ev.target.value; editor(); };
+    document.getElementById("edw").onchange = (ev) => { edWorkout = +ev.target.value; edArmed = -1; editor(); };
+    if (locked) {
+      document.getElementById("eddiscard").onclick = () => { if (edArmed === -2) { edArmed = -1; Store.discardDraft(); } else edArmed = -2; editor(); };
+    }
     if (locked) { view.querySelectorAll("input, select:not(#edw), button.btn").forEach((el) => (el.disabled = true)); return; }
-    document.getElementById("edadd").onclick = () => { Store.addExercise(edWorkout); editor(); window.scrollTo(0, document.body.scrollHeight); };
+    document.getElementById("edadd").onclick = () => { edArmed = -1; Store.addExercise(edWorkout); editor(); window.scrollTo(0, document.body.scrollHeight); };
 
     view.onclick = (ev) => {
       const b = ev.target.closest("[data-act]");
       if (!b) return;
       const i = +b.dataset.i;
-      if (b.dataset.act === "up") Store.moveExercise(edWorkout, i, -1);
-      else if (b.dataset.act === "down") Store.moveExercise(edWorkout, i, 1);
-      else if (w.exercises.length <= 1) alert("A workout needs at least one exercise. Add another before removing this one.");
-      else if (confirm(`Remove ${w.exercises[i].name} from ${w.name}? Past sessions stay in your history.`)) Store.removeExercise(edWorkout, i);
+      const act = b.dataset.act;
+      if (act === "up") { edArmed = -1; Store.moveExercise(edWorkout, i, -1); }
+      else if (act === "down") { edArmed = -1; Store.moveExercise(edWorkout, i, 1); }
+      else if (w.exercises.length <= 1) { edArmed = -1; alert("A workout needs at least one exercise. Add another before removing this one."); }
+      else if (edArmed === i) { edArmed = -1; Store.removeExercise(edWorkout, i); } // second tap: past sessions stay in history
+      else edArmed = i; // first tap: arm it
       const y = window.scrollY; editor(); window.scrollTo(0, y);
     };
     // Validate each field when you leave it; a bad value snaps back to what was stored.
     view.onchange = (ev) => {
       const el = ev.target, k = el.dataset.k;
       if (!k) return;
+      edArmed = -1;
       const i = +el.dataset.i, e = w.exercises[i];
       const v = k === "name" || k === "type" ? el.value.trim() : parseFloat(el.value);
       let patch = null;
