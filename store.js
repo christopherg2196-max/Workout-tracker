@@ -38,16 +38,23 @@
   ];
 
   function fresh() {
-    return { program: JSON.parse(JSON.stringify(DEFAULT_PROGRAM)), rotation: 0, sessions: [] };
+    return { program: JSON.parse(JSON.stringify(DEFAULT_PROGRAM)), rotation: 0, sessions: [], cycleStart: new Date().toISOString() };
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const d = JSON.parse(raw);
+        // Older saves have no cycle start: use the first logged session, else now.
+        if (!d.cycleStart) d.cycleStart = (d.sessions && d.sessions[0] && d.sessions[0].date) || new Date().toISOString();
+        return d;
+      }
     } catch (e) { /* storage blocked or corrupt: fall back to fresh */ }
     return fresh();
   }
+
+  const DAY = 86400000;
 
   let data = load();
 
@@ -65,6 +72,19 @@
     },
     reset() { data = fresh(); save(); },
 
+    // Choose which workout is next; Upcoming follows because it is derived from the rotation.
+    setNext(index) { data.rotation = index; save(); },
+
+    // Whole weeks since the cycle started, counting the first week as week 1.
+    cycleWeek() { return Math.floor((Date.now() - new Date(data.cycleStart).getTime()) / (7 * DAY)) + 1; },
+    restartCycle() { data.cycleStart = new Date().toISOString(); save(); },
+
+    // Scale every program weight (default 70%), rounded to the nearest 0.5 kg.
+    deload(factor = 0.7) {
+      data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Math.round(e.weight * factor * 2) / 2; }));
+      save();
+    },
+
     // In-progress session survives reloads: stored as data.draft.
     startDraft() {
       const w = this.workoutAt(0);
@@ -76,6 +96,7 @@
           weight: e.weight,
           reps: Array(e.sets).fill(null),
           note: "",
+          skipped: false,
         })),
       };
       save();
@@ -87,10 +108,16 @@
       const d = data.draft;
       const w = data.program.find((p) => p.id === d.workoutId);
       d.exercises.forEach((de, i) => {
+        if (de.skipped) {
+          // Skipped: log nothing and leave the program weight untouched (no progression).
+          de.reps = de.reps.map(() => null);
+          return;
+        }
         w.exercises[i].weight = Progression.nextWeight(w.exercises[i], de.weight, de.reps);
       });
       data.sessions.push({ date: new Date().toISOString(), workoutId: d.workoutId, exercises: d.exercises });
-      data.rotation = (data.rotation + 1) % data.program.length;
+      // Continue the rotation from the workout just done (it may not have been the default next one).
+      data.rotation = (data.program.findIndex((p) => p.id === d.workoutId) + 1) % data.program.length;
       delete data.draft;
       save();
     },

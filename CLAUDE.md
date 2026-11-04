@@ -13,15 +13,15 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - Out of v1 (later): rest timer, warmup tab, cloud sync, Programs editor UI, native wrap.
 
 ## Screens
-1. **Home**: next workout card (name, exercises with sets×reps @ kg), Start Workout button, upcoming workouts list. Bottom tab bar: Home, History, Progress, Settings.
+1. **Home**: next workout card (name, exercises with sets×reps @ kg), Start Workout button, upcoming workouts list. Next workout is selectable (dropdown; upcoming follows). "Week N of this cycle" tracker with Restart. Deload button drops all weights to 70% (rounded to 0.5 kg, confirm first). Bottom tab bar: Home, History, Progress, Settings.
 2. **In-session**: workout name header, exercise list, set circles per exercise, tap-to-edit weight, notes field, Finish Workout (saves, runs progression).
 3. **Progress**: pick an exercise, line chart of weight over time, range chips (1M/3M/6M/1Y/All); e1RM toggle optional later.
 4. **History**: month calendar with trained days marked; tap a day to see that day's workout details.
 
 ## Data model
 - `program`: 4 workouts, each with exercises `{name, sets, repMin, repMax, weight, increment}`.
-- `state`: rotation index.
-- `sessions[]`: `{date, workoutId, exercises:[{name, weight, reps:[...], note}]}`.
+- `state`: rotation index, `cycleStart` (ISO date, drives the weeks counter).
+- `sessions[]`: `{date, workoutId, exercises:[{name, weight, reps:[...], note, skipped}]}`. Skipped exercises log no reps and get no progression. At least one exercise must be done to finish.
 
 ## Files
 - `index.html`, `styles.css`, `app.js` (router/views), `store.js` (persistence, export/import), `progression.js` (double progression), `chart.js` (dependency-free line chart)
@@ -39,6 +39,7 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - [ ] 5. Export/import backup
 - [ ] 6. Deploy to GitHub Pages, install on iPhone
 - [x] 7. Calendar view in History tab (trained days marked, tap a day for details)
+- [x] 8. Choose next workout; cycle-week tracker; deload (70%) button; skip-exercise checkbox
 
 ## Verification
 - Serve locally (`python -m http.server`), test at mobile viewport: complete a workout, rotation advances, weight increases only when top reps hit on all sets, chart updates.

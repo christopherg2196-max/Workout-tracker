@@ -142,3 +142,21 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 .day.today { box-shadow: inset 0 0 0 2px var(--muted); }
 .day.sel { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--text); }
 .hist { padding-top: 0; padding-bottom: 0; }
+
+/* ---- Home extras: cycle tracker, next-workout picker, deload ---- */
+.cycle { display: flex; justify-content: space-between; align-items: center; margin: 6px 0 2px; font-size: 15px; }
+.link.small { font-size: 14px; }
+.badge.pick {
+  font: inherit; font-weight: 600; color: var(--text); padding: 0 8px; height: 36px;
+  appearance: auto;
+}
+.badge.pick:disabled { opacity: .5; }
+.btn.secondary { background: transparent; color: var(--accent); border: 2px solid var(--accent); font-size: 16px; padding: 12px; margin-top: 0; }
+
+/* ---- Skip exercise ---- */
+.skip { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-top: 8px; }
+.skip input { width: 20px; height: 20px; accent-color: var(--accent); }
+.ex.skipped .sets, .ex.skipped .note { opacity: .35; }
+.ex.skipped strong { text-decoration: line-through; color: var(--muted); }
+.wt:disabled { opacity: .4; }
+.set:disabled { cursor: default; }

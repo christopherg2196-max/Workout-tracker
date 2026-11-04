@@ -18,13 +18,24 @@
     const last = d.sessions[d.sessions.length - 1];
     const lastText = last ? `Last workout: ${new Date(last.date).toLocaleDateString()}` : "No workouts logged yet";
 
+    const started = new Date(d.cycleStart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
     view.innerHTML = `
       <div class="sub">Program</div>
       <div class="sub" style="color:var(--text);font-weight:600">Upper / Lower · 4 days</div>
-      <div class="head"><h1>Next Workout</h1><span class="badge">${next.name}</span></div>
+      <div class="cycle">
+        <span><strong>Week ${Store.cycleWeek()}</strong> of this cycle <span class="sub">· since ${started}</span></span>
+        <button class="link small" id="restart">Restart</button>
+      </div>
+      <div class="head"><h1>Next Workout</h1>
+        <select class="badge pick" id="pick" aria-label="Choose next workout" ${d.draft ? "disabled" : ""}>
+          ${d.program.map((w, i) => `<option value="${i}" ${i === d.rotation ? "selected" : ""}>${w.name}</option>`).join("")}
+        </select>
+      </div>
       <div class="sub">${lastText}</div>
       <div class="card">${exerciseRows(next)}</div>
       <button class="btn" id="start">${d.draft ? "Resume Workout" : "Start Workout"}</button>
+      <button class="btn secondary" id="deload">Deload (70% of all weights)</button>
       <div class="upcoming">
         <h2>Upcoming Workouts</h2>
         ${upcoming.map((w) => `
@@ -34,6 +45,18 @@
     document.getElementById("start").onclick = () => {
       if (!Store.data.draft) Store.startDraft();
       session();
+    };
+    document.getElementById("pick").onchange = (ev) => { Store.setNext(+ev.target.value); home(); };
+    document.getElementById("restart").onclick = () => {
+      if (confirm("Restart the cycle counter at week 1, starting today?")) { Store.restartCycle(); home(); }
+    };
+    document.getElementById("deload").onclick = () => {
+      if (Store.data.draft) return alert("Finish or discard your current workout before deloading.");
+      const e = next.exercises[0];
+      const after = Math.round(e.weight * 0.7 * 2) / 2;
+      if (!confirm(`Drop every exercise to 70% of its current weight?\n\nExample: ${e.name} ${fmt(e.weight)}kg → ${fmt(after)}kg.\nThis can't be undone.`)) return;
+      Store.deload(0.7);
+      home();
     };
   }
 
@@ -46,8 +69,11 @@
     if (!d) return home();
     document.body.classList.add("in-session");
     const w = Store.data.program.find((p) => p.id === d.workoutId);
-    const complete = d.exercises.every((x) => x.reps.every((r) => r !== null));
-    if (complete) showErrors = false;
+    // Every exercise is either skipped or fully tapped; at least one must actually be done.
+    const complete = d.exercises.every((x) => x.skipped || x.reps.every((r) => r !== null));
+    const hasWork = d.exercises.some((x) => !x.skipped);
+    const canFinish = complete && hasWork;
+    if (canFinish) showErrors = false;
 
     view.innerHTML = `
       <div class="head">
@@ -58,24 +84,27 @@
         const e = w.exercises[i];
         const range = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
         return `
-        <div class="ex">
+        <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${de.name}</strong>
-            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${fmt(de.weight)}">kg</span>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${fmt(de.weight)}" ${de.skipped ? "disabled" : ""}>kg</span>
           </div>
+          <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
           <div class="sets">
             ${de.reps.map((r, s) => {
               const done = r !== null;
               const full = done && r >= e.repMax;
-              const cls = done ? (full ? "full" : "part") : showErrors ? "err" : "";
-              return `<button class="set ${cls}" data-i="${i}" data-s="${s}">${done ? r : e.repMax}</button>`;
+              const cls = done ? (full ? "full" : "part") : showErrors && !de.skipped ? "err" : "";
+              return `<button class="set ${cls}" data-i="${i}" data-s="${s}" ${de.skipped ? "disabled" : ""}>${done ? r : e.repMax}</button>`;
             }).join("")}
           </div>
           <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${esc(de.note)}</textarea>
         </div>`;
       }).join("")}
-      <button class="btn ${complete ? "" : "blocked"}" id="finish">Finish Workout</button>
-      ${showErrors && !complete ? `<p class="errmsg">Tap every set before finishing. Tap a circle again to lower the reps; a 0 counts as failed.</p>` : ""}`;
+      <button class="btn ${canFinish ? "" : "blocked"}" id="finish">Finish Workout</button>
+      ${showErrors && !canFinish ? `<p class="errmsg">${hasWork
+        ? "Tap every set, or tick Skip, before finishing. Tap a circle again to lower the reps; a 0 counts as failed."
+        : "You skipped every exercise. Log at least one to finish."}</p>` : ""}`;
 
     const save = () => Store.save();
     view.onclick = (ev) => {
@@ -92,7 +121,13 @@
     };
     // Weight edits apply to this session and become the base for progression on finish.
     view.onchange = (ev) => {
-      if (ev.target.classList.contains("wt")) {
+      if (ev.target.classList.contains("skipcb")) {
+        d.exercises[+ev.target.dataset.i].skipped = ev.target.checked;
+        save();
+        const y = window.scrollY;
+        session();
+        window.scrollTo(0, y);
+      } else if (ev.target.classList.contains("wt")) {
         // Snap the box back to the stored value if the entry was empty/invalid.
         ev.target.value = fmt(d.exercises[+ev.target.dataset.i].weight);
       }
@@ -112,7 +147,7 @@
       leaveSession();
     };
     document.getElementById("finish").onclick = () => {
-      if (!complete) {
+      if (!canFinish) {
         showErrors = true;
         session();
         const first = document.querySelector(".set.err");
@@ -185,7 +220,7 @@
           <div class="row"><strong>${esc(names[s.workoutId] || s.workoutId)}</strong><span class="sub">${new Date(s.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
           ${s.exercises.map((e) => `
             <div class="row"><span>${esc(e.name)}${e.note ? `<br><span class="sub">${esc(e.note)}</span>` : ""}</span>
-            <span class="detail">${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}</span></div>`).join("")}
+            <span class="detail">${e.skipped ? "Skipped" : `${fmt(e.weight)}kg × ${e.reps.map((r) => (r === null ? "–" : r)).join(", ")}`}</span></div>`).join("")}
         </div>`).join("") : `<p class="sub">No workout logged this day.</p>`}`;
 
     const shift = (d) => { const dt = new Date(cal.y, cal.m + d, 1); cal.y = dt.getFullYear(); cal.m = dt.getMonth(); history(); };
