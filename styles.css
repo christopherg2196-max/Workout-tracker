@@ -201,3 +201,18 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 
 /* iOS Safari zooms the page when a focused field is under 16px */
 input, textarea, .wt, .note { font-size: 16px; }
+
+/* Body weight form: two equal columns that can shrink on narrow phones (date inputs have a wide default size on iOS) */
+.bwrow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.bwrow label { min-width: 0; }
+.bwrow input { -webkit-appearance: none; appearance: none; box-sizing: border-box; min-width: 0; max-width: 100%; height: 44px; padding: 8px 10px; font-size: 16px; text-align: left; }
+.bwrow input[type="date"] { display: block; line-height: 1.2; }
+.bwrow input[type="date"]::-webkit-date-and-time-value { text-align: left; min-height: 1.2em; }
+.bwform { padding: 12px 14px 4px; }
+
+/* Session: circles on the left, "complete exercise" checkbox centred on the right */
+.setsrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 10px; }
+.setsrow .sets { margin: 0; flex: 1; min-width: 0; }
+.donecb { display: flex; align-items: center; justify-content: center; flex: none; }
+.donecb input { width: 30px; height: 30px; accent-color: var(--accent); margin: 0; }
+.ex.skipped .donecb { opacity: .35; }

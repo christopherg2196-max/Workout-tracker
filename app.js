@@ -108,6 +108,7 @@
           </div>
           <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
+          <div class="setsrow">
           <div class="sets">
             ${de.reps.map((r, s) => {
               const done = r !== null;
@@ -115,6 +116,8 @@
               const cls = done ? (full ? "full" : "part") : showErrors && !de.skipped ? "err" : "";
               return `<button class="set ${cls}" data-i="${i}" data-s="${s}" ${de.skipped ? "disabled" : ""}>${done ? r : aims[i][s]}</button>`;
             }).join("")}
+          </div>
+          <label class="donecb" title="Complete all sets at the aim"><input type="checkbox" class="donecb-in" data-i="${i}" aria-label="Complete all sets of ${esc(de.name)}" ${de.reps.every((r) => r !== null) ? "checked" : ""} ${de.skipped ? "disabled" : ""}></label>
           </div>
           <textarea class="note" data-i="${i}" rows="1" placeholder="Notes">${esc(de.note)}</textarea>
         </div>`;
@@ -139,7 +142,15 @@
     };
     // Weight edits apply to this session and become the base for progression on finish.
     view.onchange = (ev) => {
-      if (ev.target.classList.contains("skipcb")) {
+      if (ev.target.classList.contains("donecb-in")) {
+        // Tick: log the aim for every empty circle (circles you already tapped keep their value). Untick: clear them all.
+        const i = +ev.target.dataset.i, de = d.exercises[i];
+        de.reps = ev.target.checked ? de.reps.map((r, s) => (r === null ? aims[i][s] : r)) : de.reps.map(() => null);
+        save();
+        const y = window.scrollY;
+        session();
+        window.scrollTo(0, y);
+      } else if (ev.target.classList.contains("skipcb")) {
         d.exercises[+ev.target.dataset.i].skipped = ev.target.checked;
         save();
         const y = window.scrollY;
