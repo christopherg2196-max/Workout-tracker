@@ -49,27 +49,46 @@
     };
   }
 
+  // Reads and validates the saved data (same checks as a backup import). If it can't be used, the raw
+  // text is kept under KEY + "-corrupt" (never silently overwritten) and a warning is set for Home.
+  let loadWarning = null;
   function load() {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { return fresh(); } // storage blocked
+    if (!raw) return fresh();
     try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        // Older saves have no cycle start: use the first logged session, else now.
-        if (!d.cycleStart) d.cycleStart = (d.sessions && d.sessions[0] && d.sessions[0].date) || new Date().toISOString();
-        if (!d.settings) d.settings = { unit: "kg" };
-        if (!d.bodyweight) d.bodyweight = [];
-        return d;
+      const d = JSON.parse(raw);
+      // Older saves have no cycle start: use the first logged session, else now.
+      if (!d.cycleStart) d.cycleStart = (d.sessions && d.sessions[0] && d.sessions[0].date) || new Date().toISOString();
+      if (!d.settings) d.settings = { unit: "kg" };
+      if (!d.bodyweight) d.bodyweight = [];
+      const res = parseBackup(JSON.stringify({ app: "workout-tracker", version: SCHEMA, data: d }));
+      if (res.error) throw new Error(res.error);
+      const clean = res.data;
+      // Keep an in-progress workout only if it still matches the program.
+      const dr = d.draft, w = dr && clean.program.find((p) => p.id === dr.workoutId);
+      if (w && Array.isArray(dr.exercises) && dr.exercises.length === w.exercises.length &&
+          dr.exercises.every((x, i) => x && x.name === w.exercises[i].name && typeof x.weight === "number" && Array.isArray(x.reps) && x.reps.length === w.exercises[i].sets)) {
+        clean.draft = dr;
       }
-    } catch (e) { /* storage blocked or corrupt: fall back to fresh */ }
-    return fresh();
+      return clean;
+    } catch (e) {
+      try { localStorage.setItem(KEY + "-corrupt", raw); } catch (_) { /* ignore */ }
+      loadWarning = "Your saved data couldn't be read, so the app started fresh. A copy of the old data was kept on this device.";
+      return fresh();
+    }
   }
 
   const DAY = 86400000;
 
-  let data = load();
+  let data; // set below, once parseBackup and SCHEMA exist
 
+  let saveWarned = false;
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch (e) {
+      if (!saveWarned) { saveWarned = true; alert("Couldn't save your data on this device (storage is full or blocked). Export a backup from Settings and free some space."); }
+    }
   }
 
   // All weights are stored in kg. Units converts for display/input only, so history stays
@@ -87,7 +106,7 @@
     // Increment (kg) to add on progression. In lb mode the kg increment maps to 2.5-lb steps
     // (2.5 kg -> 5 lb, 5 kg -> 10 lb) so weights don't become 5.5-lb jumps.
     incKg(incKg) {
-      if (data.settings.unit !== "lb") return incKg;
+      if (data.settings.unit !== "lb" || incKg <= 0) return Math.max(0, incKg); // 0 = never add weight (plank)
       return Math.max(2.5, Math.round((incKg * LB) / 2.5) * 2.5) / LB;
     },
   };
@@ -111,18 +130,22 @@
       check(obj.version <= SCHEMA, "This backup is from a newer version of the app. Update the app first.");
       const d = obj.data; // (older versions would be migrated to the current shape here)
 
+      const int = (n, lo, hi) => Number.isInteger(n) && n >= lo && n <= hi;
       const program = arr(d.program, "the program").map((w) => {
         check(w && typeof w.id === "string" && typeof w.name === "string", "Backup has a malformed workout.");
         return {
           id: w.id, name: w.name,
           exercises: arr(w.exercises, "exercises").map((e) => {
-            check(e && typeof e.name === "string" && [e.sets, e.repMin, e.repMax, e.weight, e.inc].every(num) && e.weight >= 0,
+            check(e && typeof e.name === "string" && [e.sets, e.repMin, e.repMax, e.weight, e.inc].every(num) && e.weight >= 0 && e.inc >= 0 &&
+              int(e.sets, 1, 10) && int(e.repMin, 1, 200) && int(e.repMax, e.repMin, 200),
               "Backup has a malformed exercise.");
-            return { name: e.name, type: e.type === "assistance" ? "assistance" : "core", sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc, step: num(e.step) && e.step >= 1 ? e.step : 1 };
+            return { name: e.name, type: e.type === "assistance" ? "assistance" : "core", sets: e.sets, repMin: e.repMin, repMax: e.repMax, weight: e.weight, inc: e.inc, step: int(e.step, 1, 10) ? e.step : 1 };
           }),
         };
       });
       check(program.length > 0, "Backup has no workouts.");
+      check(new Set(program.map((w) => w.id)).size === program.length, "Backup has duplicate workouts.");
+      check(program.every((w) => w.exercises.length > 0), "Backup has a workout with no exercises.");
       check(Number.isInteger(d.rotation) && d.rotation >= 0 && d.rotation < program.length, "Backup has an invalid rotation.");
 
       const sessions = arr(d.sessions, "the session history").map((s) => {
@@ -131,7 +154,7 @@
           date: s.date, workoutId: s.workoutId,
           exercises: arr(s.exercises, "session exercises").map((e) => {
             check(e && typeof e.name === "string" && num(e.weight) && Array.isArray(e.reps) &&
-              e.reps.every((r) => r === null || (num(r) && r >= 0)), "Backup has a malformed logged exercise.");
+              e.reps.length <= 50 && e.reps.every((r) => r === null || (num(r) && r >= 0)), "Backup has a malformed logged exercise.");
             return { name: e.name, weight: e.weight, reps: e.reps.slice(), note: typeof e.note === "string" ? e.note : "", skipped: !!e.skipped };
           }),
         };
@@ -140,7 +163,11 @@
       const bodyweight = (d.bodyweight === undefined ? [] : arr(d.bodyweight, "body weight")).map((b) => {
         check(b && typeof b.date === "string" && DATE_RE.test(b.date) && num(b.kg) && b.kg > 0, "Backup has a malformed body weight entry.");
         return { date: b.date, kg: b.kg };
-      }).sort((a, b) => (a.date < b.date ? -1 : 1));
+      });
+      // One entry per day: a later duplicate replaces an earlier one.
+      const byDate = new Map(bodyweight.map((b) => [b.date, b]));
+      bodyweight.length = 0;
+      [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((b) => bodyweight.push(b));
 
       const clean = {
         program, rotation: d.rotation, sessions, bodyweight,
@@ -162,8 +189,24 @@
     }
   }
 
+  data = load();
+  // Ask the browser not to evict our storage (helps against iOS clearing it); harmless if refused.
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* ignore */ }
+
+  // Exercise names must be unique across the program (history and charts are keyed by name).
+  // Returns `want`, or "want (2)", "want (3)"... if taken by another exercise.
+  function uniqueName(want, skipW, skipE) {
+    const taken = new Set();
+    data.program.forEach((w, wi) => w.exercises.forEach((e, ei) => { if (!(wi === skipW && ei === skipE)) taken.add(e.name); }));
+    let name = want, n = 2;
+    while (taken.has(name)) name = `${want} (${n++})`;
+    return name;
+  }
+
   window.Store = {
     parseBackup,
+    // Set if saved data had to be set aside at startup (shown once on Home).
+    takeWarning() { const w = loadWarning; loadWarning = null; return w; },
 
     // Everything except an in-progress workout draft. lastBackup is stamped into the file so a
     // restore also restores "when did I last back up".
@@ -208,6 +251,7 @@
     // Renaming also renames the exercise in past sessions, so its history and chart stay joined up.
     editExercise(wi, ei, patch) {
       const e = data.program[wi].exercises[ei];
+      if (patch.name !== undefined) patch.name = uniqueName(patch.name, wi, ei);
       if (patch.name !== undefined && patch.name !== e.name) {
         data.sessions.forEach((s) => s.exercises.forEach((x) => { if (x.name === e.name) x.name = patch.name; }));
       }
@@ -216,7 +260,7 @@
       save();
     },
     addExercise(wi) {
-      data.program[wi].exercises.push({ name: "New exercise", type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
+      data.program[wi].exercises.push({ name: uniqueName("New exercise", -1, -1), type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
       save();
     },
     removeExercise(wi, ei) { data.program[wi].exercises.splice(ei, 1); save(); },

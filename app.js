@@ -12,7 +12,7 @@
   function exerciseRows(w) {
     return w.exercises.map((e, i) => {
       const reps = e.repMin === e.repMax ? e.repMax : `${e.repMin}-${e.repMax}`;
-      return `${typeHead(w.exercises, i)}<div class="row"><span>${e.name}</span><span class="detail">${e.sets}×${reps} ${Units.show(e.weight)}${Units.label}</span></div>`;
+      return `${typeHead(w.exercises, i)}<div class="row"><span>${esc(e.name)}</span><span class="detail">${e.sets}×${reps} ${Units.show(e.weight)}${Units.label}</span></div>`;
     }).join("");
   }
 
@@ -22,6 +22,7 @@
     const upcoming = [1, 2, 3].map((i) => Store.workoutAt(i));
     const last = d.sessions[d.sessions.length - 1];
     const lastText = last ? `Last workout: ${new Date(last.date).toLocaleDateString()}` : "No workouts logged yet";
+    const warn = Store.takeWarning();
 
     const started = new Date(d.cycleStart).toLocaleDateString(undefined, { month: "short", day: "numeric" });
     // Quiet nudge: only once there is something worth losing, and only after a month without a backup.
@@ -37,9 +38,10 @@
       </div>
       <div class="head"><h1>Next Workout</h1>
         <select class="badge pick" id="pick" aria-label="Choose next workout" ${d.draft ? "disabled" : ""}>
-          ${d.program.map((w, i) => `<option value="${i}" ${i === d.rotation ? "selected" : ""}>${w.name}</option>`).join("")}
+          ${d.program.map((w, i) => `<option value="${i}" ${i === d.rotation ? "selected" : ""}>${esc(w.name)}</option>`).join("")}
         </select>
       </div>
+      ${warn ? `<p class="errmsg">${esc(warn)}</p>` : ""}
       <div class="sub">${lastText}</div>
       <div class="card">${exerciseRows(next)}</div>
       <button class="btn" id="start">${d.draft ? "Resume Workout" : "Start Workout"}</button>
@@ -48,7 +50,7 @@
       <div class="upcoming">
         <h2>Upcoming Workouts</h2>
         ${upcoming.map((w) => `
-          <div class="head when"><span>${w.name}</span></div>
+          <div class="head when"><span>${esc(w.name)}</span></div>
           <div class="card">${exerciseRows(w)}</div>`).join("")}
       </div>`;
     document.getElementById("start").onclick = () => {
@@ -93,7 +95,7 @@
     view.innerHTML = `
       <div class="head">
         <button class="link" id="cancel">&#8249; Back</button>
-        <span class="badge">${w.name}</span>
+        <span class="badge">${esc(w.name)}</span>
       </div>
       ${d.exercises.map((de, i) => {
         const e = w.exercises[i];
@@ -101,7 +103,7 @@
         return `${typeHead(w.exercises, i)}
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
-            <strong>${de.name}</strong>
+            <strong>${esc(de.name)}</strong>
             <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
           <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
@@ -251,7 +253,7 @@
 
   function progress() {
     const names = [...new Set(Store.data.program.flatMap((p) => p.exercises.map((e) => e.name)))];
-    if (!prog.ex) prog.ex = names[0];
+    if (!names.includes(prog.ex)) prog.ex = names[0];
     const cutoff = RANGES[prog.range] === Infinity ? 0 : Date.now() - RANGES[prog.range] * 86400000;
 
     const rows = [];
@@ -266,7 +268,7 @@
     const latest = rows[rows.length - 1];
     view.innerHTML = `
       <h1>Progress</h1>
-      <select id="exsel">${names.map((n) => `<option ${n === prog.ex ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
+      <select id="exsel">${names.map((n) => `<option value="${esc(n)}" ${n === prog.ex ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>
       <div class="chips">${Object.keys(RANGES).map((r) => `<button data-r="${r}" class="${r === prog.range ? "on" : ""}">${r}</button>`).join("")}</div>
       <div class="big">${latest ? Units.show(latest.e.weight) + Units.label : "–"}</div>
       <div class="sub">${latest ? "Last: " + new Date(latest.t).toLocaleDateString() : "No sessions for this exercise yet"}</div>
@@ -378,7 +380,7 @@
   // ---- Program editor (Settings > Edit program) ----
   let edWorkout = 0; // index of the workout being edited
   // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
-  const incShow = (kg) => (Units.unit === "lb" ? String(Math.max(2.5, Math.round(Units.toDisplay(kg) / 2.5) * 2.5)) : Units.show(kg));
+  const incShow = (kg) => (kg <= 0 ? "0" : Units.unit === "lb" ? String(Math.max(2.5, Math.round(Units.toDisplay(kg) / 2.5) * 2.5)) : Units.show(kg));
 
   function editor() {
     const d = Store.data;
@@ -426,6 +428,7 @@
       const i = +b.dataset.i;
       if (b.dataset.act === "up") Store.moveExercise(edWorkout, i, -1);
       else if (b.dataset.act === "down") Store.moveExercise(edWorkout, i, 1);
+      else if (w.exercises.length <= 1) alert("A workout needs at least one exercise. Add another before removing this one.");
       else if (confirm(`Remove ${w.exercises[i].name} from ${w.name}? Past sessions stay in your history.`)) Store.removeExercise(edWorkout, i);
       const y = window.scrollY; editor(); window.scrollTo(0, y);
     };
@@ -440,8 +443,8 @@
       else if (k === "type") patch = { type: v === "assistance" ? "assistance" : "core" };
       else if (isNaN(v)) { /* snap back */ }
       else if (k === "sets") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { sets: v }; }
-      else if (k === "repMin") { if (Number.isInteger(v) && v >= 1 && v <= e.repMax) patch = { repMin: v }; }
-      else if (k === "repMax") { if (Number.isInteger(v) && v >= e.repMin && v <= 200) patch = { repMax: v }; }
+      else if (k === "repMin") { if (Number.isInteger(v) && v >= 1 && v <= 200) patch = { repMin: v, repMax: Math.max(e.repMax, v) }; } // keeps min <= max
+      else if (k === "repMax") { if (Number.isInteger(v) && v >= 1 && v <= 200) patch = { repMax: v, repMin: Math.min(e.repMin, v) }; }
       else if (k === "step") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { step: v }; }
       else if (k === "weight") { if (v >= 0) patch = { weight: Math.round(Units.toKg(v) * 10000) / 10000 }; }
       else if (k === "inc") { if (v >= 0) patch = { inc: Math.round(Units.toKg(v) * 10000) / 10000 }; }
@@ -484,7 +487,9 @@
     const fail = (text) => { backupMsg = { ok: false, text }; settings(); };
     if (file.size > 10 * 1024 * 1024) return fail("That file is too large to be a backup.");
 
-    const res = Store.parseBackup(await file.text());
+    let text;
+    try { text = await file.text(); } catch (e) { return fail("Couldn't read that file. Your data was not changed."); }
+    const res = Store.parseBackup(text);
     if (res.error) return fail(`Not imported: ${res.error} Your data was not changed.`);
 
     const s = res.summary, day = (iso) => new Date(iso).toLocaleDateString();
@@ -509,6 +514,7 @@
 
   function go(tab) {
     document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+    view.onclick = view.onchange = view.oninput = null; // drop handlers left by the session/editor views
     routes[tab]();
     window.scrollTo(0, 0);
   }
