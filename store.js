@@ -199,6 +199,35 @@
     },
     reset() { data = fresh(); save(); },
 
+    // ---- Program editing (blocked in the UI while a workout is in progress) ----
+    // Keeps core lifts above assistance (stable, so the order you chose within each group stays).
+    _tidy(wi) {
+      data.program[wi].exercises.sort((a, b) => (a.type === "assistance" ? 1 : 0) - (b.type === "assistance" ? 1 : 0));
+    },
+    // patch: any of name, type, sets, repMin, repMax, weight (kg), inc (kg), step.
+    // Renaming also renames the exercise in past sessions, so its history and chart stay joined up.
+    editExercise(wi, ei, patch) {
+      const e = data.program[wi].exercises[ei];
+      if (patch.name !== undefined && patch.name !== e.name) {
+        data.sessions.forEach((s) => s.exercises.forEach((x) => { if (x.name === e.name) x.name = patch.name; }));
+      }
+      Object.assign(e, patch);
+      this._tidy(wi);
+      save();
+    },
+    addExercise(wi) {
+      data.program[wi].exercises.push({ name: "New exercise", type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
+      save();
+    },
+    removeExercise(wi, ei) { data.program[wi].exercises.splice(ei, 1); save(); },
+    // dir = -1 (up) or +1 (down); only swaps within the same type group.
+    moveExercise(wi, ei, dir) {
+      const l = data.program[wi].exercises, j = ei + dir;
+      if (j < 0 || j >= l.length || (l[j].type === "assistance") !== (l[ei].type === "assistance")) return;
+      [l[ei], l[j]] = [l[j], l[ei]];
+      save();
+    },
+
     // Choose which workout is next; Upcoming follows because it is derived from the rotation.
     setNext(index) { data.rotation = index; save(); },
 

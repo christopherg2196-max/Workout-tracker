@@ -191,3 +191,10 @@ body.in-session main { padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
 .grp { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin: 14px 4px 4px; }
 .card .grp { margin: 10px 0 2px; }
 .card .grp:first-child { margin-top: 2px; }
+
+/* Program editor */
+.edx .f { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.edx input, .edx select { font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line, #8883); background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
+.edx .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0; }
+.edx .btnrow { margin-top: 4px; }
+.btn.small { padding: 8px 14px; font-size: 14px; }

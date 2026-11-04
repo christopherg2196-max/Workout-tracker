@@ -346,6 +346,10 @@
     const u = Units.unit;
     view.innerHTML = `
       <h1>Settings</h1>
+      <h2>Program</h2>
+      <button class="btn secondary" id="editprog">Edit program</button>
+      <p class="sub">Change exercises, sets, rep ranges, weights and order.</p>
+
       <h2>Units</h2>
       <div class="seg" role="group" aria-label="Weight units">
         <button data-u="kg" class="${u === "kg" ? "on" : ""}">kg</button>
@@ -365,9 +369,85 @@
     backupMsg = null; // shown once
 
     view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
+    document.getElementById("editprog").onclick = editor;
     document.getElementById("export").onclick = exportBackup;
     document.getElementById("import").onclick = () => document.getElementById("importfile").click();
     document.getElementById("importfile").onchange = importBackup;
+  }
+
+  // ---- Program editor (Settings > Edit program) ----
+  let edWorkout = 0; // index of the workout being edited
+  // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
+  const incShow = (kg) => (Units.unit === "lb" ? String(Math.max(2.5, Math.round(Units.toDisplay(kg) / 2.5) * 2.5)) : Units.show(kg));
+
+  function editor() {
+    const d = Store.data;
+    if (edWorkout >= d.program.length) edWorkout = 0;
+    const w = d.program[edWorkout];
+    const locked = !!d.draft;
+    const field = (label, i, key, val, extra = "") =>
+      `<label class="f"><span>${label}</span><input data-i="${i}" data-k="${key}" inputmode="decimal" value="${esc(val)}" ${extra}></label>`;
+    view.innerHTML = `
+      <div class="head"><button class="link" id="edback">&#8249; Settings</button></div>
+      <h1>Edit program</h1>
+      ${locked ? `<p class="errmsg">Finish or discard your current workout before editing the program.</p>` : ""}
+      <select class="badge pick" id="edw" aria-label="Workout to edit">
+        ${d.program.map((p, i) => `<option value="${i}" ${i === edWorkout ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+      </select>
+      <p class="sub">Changes apply from your next session. Renaming an exercise also renames it in your history. Weights are in ${Units.label}.</p>
+      ${w.exercises.map((e, i) => `${typeHead(w.exercises, i)}
+        <div class="ex edx">
+          ${field("Name", i, "name", e.name, 'class="nm" inputmode="text"')}
+          <div class="grid">
+            <label class="f"><span>Type</span><select data-i="${i}" data-k="type"><option value="core" ${e.type !== "assistance" ? "selected" : ""}>Core</option><option value="assistance" ${e.type === "assistance" ? "selected" : ""}>Assistance</option></select></label>
+            ${field("Sets", i, "sets", e.sets)}
+            ${field("Min reps", i, "repMin", e.repMin)}
+            ${field("Max reps", i, "repMax", e.repMax)}
+            ${field("Weight", i, "weight", Units.show(e.weight))}
+            ${field("Add when top hit", i, "inc", incShow(e.inc))}
+            ${field("Reps per tap", i, "step", e.step || 1)}
+          </div>
+          <div class="btnrow">
+            <button class="btn secondary small" data-act="up" data-i="${i}" aria-label="Move up">&#9650;</button>
+            <button class="btn secondary small" data-act="down" data-i="${i}" aria-label="Move down">&#9660;</button>
+            <button class="btn secondary small" data-act="del" data-i="${i}">Remove</button>
+          </div>
+        </div>`).join("")}
+      <button class="btn secondary" id="edadd">Add exercise</button>`;
+
+    document.getElementById("edback").onclick = settings;
+    document.getElementById("edw").onchange = (ev) => { edWorkout = +ev.target.value; editor(); };
+    if (locked) { view.querySelectorAll("input, select:not(#edw), button.btn").forEach((el) => (el.disabled = true)); return; }
+    document.getElementById("edadd").onclick = () => { Store.addExercise(edWorkout); editor(); window.scrollTo(0, document.body.scrollHeight); };
+
+    view.onclick = (ev) => {
+      const b = ev.target.closest("[data-act]");
+      if (!b) return;
+      const i = +b.dataset.i;
+      if (b.dataset.act === "up") Store.moveExercise(edWorkout, i, -1);
+      else if (b.dataset.act === "down") Store.moveExercise(edWorkout, i, 1);
+      else if (confirm(`Remove ${w.exercises[i].name} from ${w.name}? Past sessions stay in your history.`)) Store.removeExercise(edWorkout, i);
+      const y = window.scrollY; editor(); window.scrollTo(0, y);
+    };
+    // Validate each field when you leave it; a bad value snaps back to what was stored.
+    view.onchange = (ev) => {
+      const el = ev.target, k = el.dataset.k;
+      if (!k) return;
+      const i = +el.dataset.i, e = w.exercises[i];
+      const v = k === "name" || k === "type" ? el.value.trim() : parseFloat(el.value);
+      let patch = null;
+      if (k === "name") { if (v) patch = { name: v }; }
+      else if (k === "type") patch = { type: v === "assistance" ? "assistance" : "core" };
+      else if (isNaN(v)) { /* snap back */ }
+      else if (k === "sets") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { sets: v }; }
+      else if (k === "repMin") { if (Number.isInteger(v) && v >= 1 && v <= e.repMax) patch = { repMin: v }; }
+      else if (k === "repMax") { if (Number.isInteger(v) && v >= e.repMin && v <= 200) patch = { repMax: v }; }
+      else if (k === "step") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { step: v }; }
+      else if (k === "weight") { if (v >= 0) patch = { weight: Math.round(Units.toKg(v) * 10000) / 10000 }; }
+      else if (k === "inc") { if (v >= 0) patch = { inc: Math.round(Units.toKg(v) * 10000) / 10000 }; }
+      if (patch) Store.editExercise(edWorkout, i, patch);
+      const y = window.scrollY; editor(); window.scrollTo(0, y);
+    };
   }
 
   let backupMsg = null; // { ok, text } feedback shown under the Backup buttons
