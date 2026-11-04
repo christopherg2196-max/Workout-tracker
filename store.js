@@ -99,15 +99,25 @@
     get label() { return data.settings.unit; },
     toDisplay(kg) { return data.settings.unit === "lb" ? kg * LB : kg; },
     toKg(v) { return data.settings.unit === "lb" ? v / LB : v; },
-    // Display string without the unit label: 1 decimal, trailing .0 dropped.
-    show(kg) { const v = Math.round(this.toDisplay(kg) * 10) / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); },
-    // Rounds a kg value to the nearest plate-friendly step in the current unit (0.5 kg / 1 lb).
-    roundKg(kg) { const step = data.settings.unit === "lb" ? 1 / LB : 0.5; return Math.round(kg / step) * step; },
-    // Increment (kg) to add on progression. In lb mode the kg increment maps to 2.5-lb steps
-    // (2.5 kg -> 5 lb, 5 kg -> 10 lb) so weights don't become 5.5-lb jumps.
+    // Display string without the unit label. Lifting weights in lb are always shown to the nearest 5 lb
+    // (137.8 -> 140); in kg they show 1 decimal with a trailing .0 dropped. Use showBody for body weight.
+    show(kg) {
+      if (data.settings.unit === "lb") return String(this.lift(kg));
+      return this.showBody(kg);
+    },
+    // Lifting weight as a number in the current unit: nearest 5 lb in lb mode, unchanged in kg.
+    lift(kg) { return data.settings.unit === "lb" ? Math.round((kg * LB) / 5) * 5 : kg; },
+    // Snaps a kg weight to a whole 5-lb step in lb mode (so the stored value matches what's shown); no-op in kg.
+    snapKg(kg) { return data.settings.unit === "lb" ? this.lift(kg) / LB : kg; },
+    // Exact value, 1 decimal (used for body weight, where 5-lb rounding would be wrong).
+    showBody(kg) { const v = Math.round(this.toDisplay(kg) * 10) / 10; return Number.isInteger(v) ? String(v) : v.toFixed(1); },
+    // Rounds a kg value to the nearest plate-friendly step in the current unit (0.5 kg / 5 lb).
+    roundKg(kg) { const step = data.settings.unit === "lb" ? 5 / LB : 0.5; return Math.round(kg / step) * step; },
+    // Increment (kg) to add on progression. In lb mode it is a multiple of 5 lb (2.5 kg -> 5 lb, 5 kg -> 10 lb);
+    // 0 stays 0 (e.g. plank).
     incKg(incKg) {
-      if (data.settings.unit !== "lb" || incKg <= 0) return Math.max(0, incKg); // 0 = never add weight (plank)
-      return Math.max(2.5, Math.round((incKg * LB) / 2.5) * 2.5) / LB;
+      if (data.settings.unit !== "lb" || incKg <= 0) return Math.max(0, incKg);
+      return Math.max(5, Math.round((incKg * LB) / 5) * 5) / LB;
     },
   };
 
@@ -285,7 +295,23 @@
       save();
     },
 
-    setUnit(u) { data.settings.unit = u === "lb" ? "lb" : "kg"; save(); },
+    // Switching to lb also snaps every program weight to a whole 5 lb, so what you see is what is stored.
+    setUnit(u) {
+      data.settings.unit = u === "lb" ? "lb" : "kg";
+      if (data.settings.unit === "lb") data.program.forEach((w) => w.exercises.forEach((e) => { e.weight = Units.snapKg(e.weight); }));
+      save();
+    },
+
+    // Erase training history (sessions, body weight, any workout in progress) and restart the cycle.
+    // keepProgram = true keeps your exercises and current weights; false restores the default program.
+    // The kg/lb setting is always kept.
+    resetData(keepProgram) {
+      const old = data, d = fresh();
+      d.settings = old.settings;
+      if (keepProgram) d.program = old.program;
+      data = d;
+      save();
+    },
 
     // Body weight log: one entry per calendar day (date = "YYYY-MM-DD"), stored in kg, kept sorted.
     addBodyweight(date, kg) {
@@ -327,7 +353,7 @@
           de.reps = de.reps.map(() => null);
           return;
         }
-        w.exercises[i].weight = Progression.nextWeight(w.exercises[i], de.weight, de.reps, Units.incKg(w.exercises[i].inc));
+        w.exercises[i].weight = Units.snapKg(Progression.nextWeight(w.exercises[i], de.weight, de.reps, Units.incKg(w.exercises[i].inc)));
       });
       data.sessions.push({ date: new Date().toISOString(), workoutId: d.workoutId, exercises: d.exercises });
       // Continue the rotation from the workout just done (it may not have been the default next one).

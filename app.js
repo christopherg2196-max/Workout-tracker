@@ -104,7 +104,7 @@
         <div class="ex ${de.skipped ? "skipped" : ""}">
           <div class="head">
             <strong>${esc(de.name)}</strong>
-            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="0.5" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
+            <span class="target">${e.sets}×${range} @ <input class="wt" type="number" inputmode="decimal" step="${Units.unit === "lb" ? 5 : 0.5}" min="0" data-i="${i}" value="${Units.show(de.weight)}" ${de.skipped ? "disabled" : ""}>${Units.label}</span>
           </div>
           <div class="aim">Aim: <strong>${aimText(aims[i])}</strong></div>
           <label class="skip"><input type="checkbox" class="skipcb" data-i="${i}" ${de.skipped ? "checked" : ""}> Skip this exercise</label>
@@ -158,7 +158,10 @@
         window.scrollTo(0, y);
       } else if (ev.target.classList.contains("wt")) {
         // Snap the box back to the stored value if the entry was empty/invalid.
-        ev.target.value = Units.show(d.exercises[+ev.target.dataset.i].weight);
+        const di = +ev.target.dataset.i, typed = parseFloat(ev.target.value);
+        if (!isNaN(typed) && typed >= 0) d.exercises[di].weight = Units.snapKg(Units.toKg(typed)); // lb: whole 5 lb
+        ev.target.value = Units.show(d.exercises[di].weight);
+        save();
       }
     };
     view.oninput = (ev) => {
@@ -273,7 +276,7 @@
       if (e && e.reps.some((r) => r !== null)) rows.push({ t: new Date(s.date).getTime(), e });
     });
     const inRange = rows.filter((r) => r.t >= cutoff);
-    const series = [{ label: "Weight", color: "#f08a1c", points: inRange.map((r) => ({ t: r.t, v: +Units.toDisplay(r.e.weight).toFixed(1) })) }];
+    const series = [{ label: "Weight", color: "#f08a1c", points: inRange.map((r) => ({ t: r.t, v: +Units.lift(r.e.weight).toFixed(1) })) }];
     if (prog.e1rm) series.push({ label: "e1RM", color: "#e10613", points: inRange.filter((r) => e1rmOf(r.e) > 0).map((r) => ({ t: r.t, v: +Units.toDisplay(e1rmOf(r.e)).toFixed(1) })) });
 
     const latest = rows[rows.length - 1];
@@ -324,12 +327,12 @@
         ${bw.err ? `<p class="errmsg">${esc(bw.err)}</p>` : ""}
       </div>
       <div class="chips">${Object.keys(RANGES).map((r) => `<button data-b="${r}" class="${r === bw.range ? "on" : ""}">${r}</button>`).join("")}</div>
-      <div class="big">${latest ? Units.show(latest.kg) + Units.label : "–"}</div>
+      <div class="big">${latest ? Units.showBody(latest.kg) + Units.label : "–"}</div>
       <div class="sub">${latest ? `Last: ${fmtDate(latest.date)}${delta}` : "No body weight logged yet"}</div>
       <div class="card" style="padding:12px">${Chart.line([{ label: "Body weight", color: "#2f7de1", points: pts }])}</div>
       ${all.length ? `<div class="card">${all.slice().reverse().slice(0, 10).map((b) => `
         <div class="row"><span>${fmtDate(b.date)}</span>
-        <span class="detail">${Units.show(b.kg)}${Units.label} <button class="link small bwdel" data-d="${b.date}" aria-label="Delete entry">✕</button></span></div>`).join("")}
+        <span class="detail">${Units.showBody(b.kg)}${Units.label} <button class="link small bwdel" data-d="${b.date}" aria-label="Delete entry">✕</button></span></div>`).join("")}
         ${all.length > 10 ? `<div class="sub" style="padding:8px 0">Showing latest 10 of ${all.length}</div>` : ""}</div>` : ""}`;
   }
 
@@ -378,7 +381,11 @@
         <button class="btn secondary" id="import">Import backup</button>
       </div>
       <input type="file" id="importfile" accept=".json,application/json" hidden>
-      ${backupMsg ? `<p class="${backupMsg.ok ? "okmsg" : "errmsg"}">${esc(backupMsg.text)}</p>` : ""}`;
+      ${backupMsg ? `<p class="${backupMsg.ok ? "okmsg" : "errmsg"}">${esc(backupMsg.text)}</p>` : ""}
+
+      <h2>Reset</h2>
+      <p class="sub">Erase your logged workouts and body weight to start over, for example after testing.</p>
+      <button class="btn secondary danger" id="reset">Reset app data</button>`;
     backupMsg = null; // shown once
 
     view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
@@ -386,13 +393,14 @@
     document.getElementById("export").onclick = exportBackup;
     document.getElementById("import").onclick = () => document.getElementById("importfile").click();
     document.getElementById("importfile").onchange = importBackup;
+    document.getElementById("reset").onclick = resetDialog;
   }
 
   // ---- Program editor (Settings > Edit program) ----
   let edWorkout = 0; // index of the workout being edited
   let edArmed = -1;  // exercise index whose Remove button is waiting for a second tap (no popup: dialogs are unreliable in some browsers)
   // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
-  const incShow = (kg) => (kg <= 0 ? "0" : Units.unit === "lb" ? String(Math.max(2.5, Math.round(Units.toDisplay(kg) / 2.5) * 2.5)) : Units.show(kg));
+  const incShow = (kg) => (kg <= 0 ? "0" : Units.unit === "lb" ? String(Math.max(5, Math.round(Units.toDisplay(kg) / 5) * 5)) : Units.show(kg));
 
   function editor() {
     const d = Store.data;
@@ -464,11 +472,42 @@
       else if (k === "repMin") { if (Number.isInteger(v) && v >= 1 && v <= 200) patch = { repMin: v, repMax: Math.max(e.repMax, v) }; } // keeps min <= max
       else if (k === "repMax") { if (Number.isInteger(v) && v >= 1 && v <= 200) patch = { repMax: v, repMin: Math.min(e.repMin, v) }; }
       else if (k === "step") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { step: v }; }
-      else if (k === "weight") { if (v >= 0) patch = { weight: Math.round(Units.toKg(v) * 10000) / 10000 }; }
+      else if (k === "weight") { if (v >= 0) patch = { weight: Math.round(Units.snapKg(Units.toKg(v)) * 10000) / 10000 }; }
       else if (k === "inc") { if (v >= 0) patch = { inc: Math.round(Units.toKg(v) * 10000) / 10000 }; }
       if (patch) Store.editExercise(edWorkout, i, patch);
       const y = window.scrollY; editor(); window.scrollTo(0, y);
     };
+  }
+
+  // In-app popup (more reliable than the browser's confirm(), which some browsers block).
+  function resetDialog() {
+    const n = Store.data.sessions.length, bwN = Store.data.bodyweight.length;
+    const box = document.createElement("div");
+    box.className = "modal";
+    box.innerHTML = `
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlgtitle">
+        <h2 id="dlgtitle">Erase your data?</h2>
+        <p>This permanently deletes <strong>${n} logged workout${n === 1 ? "" : "s"}</strong> and <strong>${bwN} body weight entr${bwN === 1 ? "y" : "ies"}</strong>, and any workout in progress. The cycle counter restarts at week 1.</p>
+        <p><strong>This cannot be undone.</strong> Export a backup first if you might want this data again.</p>
+        <button class="btn danger-solid" data-r="keep">Erase history, keep my program</button>
+        <button class="btn danger-solid" data-r="all">Erase everything (default program)</button>
+        <button class="btn secondary" data-r="backup">Export a backup first</button>
+        <button class="btn secondary" data-r="cancel">Cancel</button>
+      </div>`;
+    document.body.appendChild(box);
+    const close = () => box.remove();
+    box.addEventListener("click", (ev) => {
+      if (ev.target === box) return close(); // tap outside = cancel
+      const r = ev.target.closest("[data-r]") && ev.target.closest("[data-r]").dataset.r;
+      if (!r) return;
+      close();
+      if (r === "backup") return exportBackup();
+      if (r === "keep" || r === "all") {
+        Store.resetData(r === "keep");
+        backupMsg = { ok: true, text: r === "keep" ? "History erased. Your program and weights were kept." : "All data erased. The default program was restored." };
+        settings();
+      }
+    });
   }
 
   let backupMsg = null; // { ok, text } feedback shown under the Backup buttons

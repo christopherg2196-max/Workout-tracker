@@ -216,3 +216,19 @@ input, textarea, .wt, .note { font-size: 16px; }
 .donecb { display: flex; align-items: center; justify-content: center; flex: none; }
 .donecb input { width: 30px; height: 30px; accent-color: var(--accent); margin: 0; }
 .ex.skipped .donecb { opacity: .35; }
+
+/* Reset button + popup */
+.btn.danger { color: #e10613; border-color: #e10613; }
+.modal { position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.dialog { background: var(--card); color: var(--text); border-radius: 18px; padding: 20px 18px 8px; width: 100%; max-width: 380px; max-height: 90vh; overflow: auto; }
+.dialog h2 { margin: 0 0 8px; }
+.dialog p { margin: 8px 0; font-size: 15px; line-height: 1.4; }
+.dialog .btn { margin: 8px 0; }
+.btn.danger-solid { background: #b3000f; color: #fff; }
+
+/* Body weight inputs: same text position in the date and weight boxes (iOS pads the date value differently) */
+.bwrow input { line-height: 1.2; padding: 0 12px; }
+.bwrow input[type="date"]::-webkit-datetime-edit,
+.bwrow input[type="date"]::-webkit-datetime-edit-fields-wrapper { padding: 0; margin: 0; }
+.bwrow input[type="date"]::-webkit-date-and-time-value { margin: 0; padding: 0; text-align: left; min-height: 0; }
+.bwrow input::placeholder { opacity: 1; color: var(--muted); }
