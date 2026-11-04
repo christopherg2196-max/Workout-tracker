@@ -391,24 +391,51 @@
     backupMsg = null; // shown once
 
     view.querySelectorAll(".seg button").forEach((b) => (b.onclick = () => { Store.setUnit(b.dataset.u); settings(); }));
-    document.getElementById("editprog").onclick = editor;
+    document.getElementById("editprog").onclick = () => { edDraft = null; edArmed = -1; editor(); };
     document.getElementById("export").onclick = exportBackup;
     document.getElementById("import").onclick = () => document.getElementById("importfile").click();
     document.getElementById("importfile").onchange = importBackup;
     document.getElementById("reset").onclick = resetDialog;
   }
 
+  // ---- Popup dialog (in-app; the browser's own confirm() is blocked in some browsers) ----
+  // buttons: [{ label, cls, fn }]. Tapping outside the box closes it without running anything.
+  function showDialog({ title, html, buttons }) {
+    const box = document.createElement("div");
+    box.className = "modal";
+    box.innerHTML = `
+      <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlgtitle">
+        <h2 id="dlgtitle">${esc(title)}</h2>
+        ${html}
+        ${buttons.map((b, i) => `<button class="btn ${b.cls || ""}" data-b="${i}">${esc(b.label)}</button>`).join("")}
+      </div>`;
+    document.body.appendChild(box);
+    box.addEventListener("click", (ev) => {
+      if (ev.target === box) return box.remove();
+      const b = ev.target.closest("[data-b]");
+      if (!b) return;
+      box.remove();
+      if (buttons[+b.dataset.b].fn) buttons[+b.dataset.b].fn();
+    });
+  }
+
   // ---- Program editor (Settings > Edit program) ----
+  // Edits go to edDraft, a private copy of the program. The real program changes only when you press
+  // Save and confirm; leaving any other way (after a confirmation if you changed something) throws the copy away.
+  let edDraft = null;
   let edWorkout = 0; // index of the workout being edited
-  let edArmed = -1;  // exercise index whose Remove button is waiting for a second tap (no popup: dialogs are unreliable in some browsers)
-  // Increment shown in the current unit; in lb mode it snaps to the 2.5 lb steps progression actually uses.
+  let edArmed = -1;  // exercise index whose Remove button is waiting for a second tap
+  // Increment shown in the current unit.
   const incShow = (kg) => (kg <= 0 ? "0" : Units.showBody(Units.incKg(kg)));
 
   function editor() {
     const d = Store.data;
-    if (edWorkout >= d.program.length) edWorkout = 0;
-    const w = d.program[edWorkout];
     const locked = !!d.draft;
+    if (!locked && !edDraft) edDraft = Store.cloneProgram();
+    const prog = edDraft || d.program; // while locked nothing is editable, so show the saved program
+    if (edWorkout >= prog.length) edWorkout = 0;
+    const w = prog[edWorkout];
+    const dirty = !locked && Store.programChanged(prog);
     const field = (label, i, key, val, extra = "") =>
       `<label class="f"><span>${label}</span><input data-i="${i}" data-k="${key}" inputmode="decimal" value="${esc(val)}" ${extra}></label>`;
     view.innerHTML = `
@@ -416,9 +443,9 @@
       <h1>Edit program</h1>
       ${locked ? `<p class="errmsg">Finish or discard your current workout before editing the program. <button class="link small" id="eddiscard">${edArmed === -2 ? "Tap again to discard it" : "Discard it now"}</button></p>` : ""}
       <select class="badge pick" id="edw" aria-label="Workout to edit">
-        ${d.program.map((p, i) => `<option value="${i}" ${i === edWorkout ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+        ${prog.map((p, i) => `<option value="${i}" ${i === edWorkout ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
       </select>
-      <p class="sub">Changes apply from your next session. Renaming an exercise also renames it in your history. Weights are in ${Units.label}.</p>
+      <p class="sub">Nothing is saved until you press Save changes at the bottom. Renaming an exercise also renames it in your history. Weights are in ${Units.label}.</p>
       ${w.exercises.map((e, i) => `${typeHead(w.exercises, i)}
         <div class="ex edx">
           ${field("Name", i, "name", e.name, 'class="nm" inputmode="text"')}
@@ -437,29 +464,41 @@
             <button class="btn ${edArmed === i ? "" : "secondary"} small" data-act="del" data-i="${i}">${edArmed === i ? "Tap again to remove" : "Remove"}</button>
           </div>
         </div>`).join("")}
-      <button class="btn secondary" id="edadd">Add exercise</button>`;
+      <button class="btn secondary" id="edadd">Add exercise</button>
+      <button class="btn" id="edsave" ${dirty ? "" : "disabled"}>${dirty ? "Save changes" : "No changes to save"}</button>`;
 
-    document.getElementById("edback").onclick = settings;
+    document.getElementById("edback").onclick = () => leaveEditor(settings);
     document.getElementById("edw").onchange = (ev) => { edWorkout = +ev.target.value; edArmed = -1; editor(); };
     if (locked) {
       document.getElementById("eddiscard").onclick = () => { if (edArmed === -2) { edArmed = -1; Store.discardDraft(); } else edArmed = -2; editor(); };
+      view.querySelectorAll("input, select:not(#edw), button.btn").forEach((el) => (el.disabled = true));
+      return;
     }
-    if (locked) { view.querySelectorAll("input, select:not(#edw), button.btn").forEach((el) => (el.disabled = true)); return; }
-    document.getElementById("edadd").onclick = () => { edArmed = -1; Store.addExercise(edWorkout); editor(); window.scrollTo(0, document.body.scrollHeight); };
+    document.getElementById("edadd").onclick = () => { edArmed = -1; Store.addExercise(prog, edWorkout); editor(); window.scrollTo(0, document.body.scrollHeight); };
+    document.getElementById("edsave").onclick = () => showDialog({
+      title: "Save changes?",
+      html: `<p>Your edits will replace the current program and apply from your next workout. Renamed exercises are also renamed in your history.</p>`,
+      buttons: [
+        { label: "Yes, save changes", fn: () => {
+          if (Store.commitProgram(prog)) { edDraft = null; backupMsg = { ok: true, text: "Program saved." }; settings(); }
+        } },
+        { label: "Keep editing", cls: "secondary" },
+      ],
+    });
 
     view.onclick = (ev) => {
       const b = ev.target.closest("[data-act]");
       if (!b) return;
       const i = +b.dataset.i;
       const act = b.dataset.act;
-      if (act === "up") { edArmed = -1; Store.moveExercise(edWorkout, i, -1); }
-      else if (act === "down") { edArmed = -1; Store.moveExercise(edWorkout, i, 1); }
+      if (act === "up") { edArmed = -1; Store.moveExercise(prog, edWorkout, i, -1); }
+      else if (act === "down") { edArmed = -1; Store.moveExercise(prog, edWorkout, i, 1); }
       else if (w.exercises.length <= 1) { edArmed = -1; alert("A workout needs at least one exercise. Add another before removing this one."); }
-      else if (edArmed === i) { edArmed = -1; Store.removeExercise(edWorkout, i); } // second tap: past sessions stay in history
+      else if (edArmed === i) { edArmed = -1; Store.removeExercise(prog, edWorkout, i); } // second tap: past sessions stay in history
       else edArmed = i; // first tap: arm it
       const y = window.scrollY; editor(); window.scrollTo(0, y);
     };
-    // Validate each field when you leave it; a bad value snaps back to what was stored.
+    // Validate each field when you leave it; a bad value snaps back to what it was.
     view.onchange = (ev) => {
       const el = ev.target, k = el.dataset.k;
       if (!k) return;
@@ -476,9 +515,25 @@
       else if (k === "step") { if (Number.isInteger(v) && v >= 1 && v <= 10) patch = { step: v }; }
       else if (k === "weight") { if (v >= 0) patch = { weight: Math.round(Units.snapKg(Units.toKg(v)) * 10000) / 10000 }; }
       else if (k === "inc") { if (v >= 0) patch = { inc: Math.round(Units.toKg(v) * 10000) / 10000 }; }
-      if (patch) Store.editExercise(edWorkout, i, patch);
+      if (patch) Store.editExercise(prog, edWorkout, i, patch);
       const y = window.scrollY; editor(); window.scrollTo(0, y);
     };
+  }
+
+  // Runs `next` (e.g. back to Settings, another tab) and drops the editor copy. If there are unsaved
+  // changes, asks first because leaving throws them away.
+  function leaveEditor(next) {
+    const proceed = () => { edDraft = null; edArmed = -1; next(); };
+    if (edDraft && Store.programChanged(edDraft)) {
+      showDialog({
+        title: "Discard changes?",
+        html: `<p>You have unsaved edits to your program. If you go back now, <strong>all of them will be discarded</strong>.</p>`,
+        buttons: [
+          { label: "Discard changes and go back", cls: "danger-solid", fn: proceed },
+          { label: "Keep editing", cls: "secondary" },
+        ],
+      });
+    } else proceed();
   }
 
   // In-app popup (more reliable than the browser's confirm(), which some browsers block).
@@ -572,6 +627,7 @@
   };
 
   function go(tab) {
+    if (edDraft) { leaveEditor(() => go(tab)); return; } // leaving the program editor: confirm if there are unsaved edits
     document.querySelectorAll("#tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
     view.onclick = view.onchange = view.oninput = null; // drop handlers left by the session/editor views
     routes[tab]();

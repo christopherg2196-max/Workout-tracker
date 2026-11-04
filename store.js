@@ -205,9 +205,9 @@
 
   // Exercise names must be unique across the program (history and charts are keyed by name).
   // Returns `want`, or "want (2)", "want (3)"... if taken by another exercise.
-  function uniqueName(want, skipW, skipE) {
+  function uniqueName(prog, want, skipW, skipE) {
     const taken = new Set();
-    data.program.forEach((w, wi) => w.exercises.forEach((e, ei) => { if (!(wi === skipW && ei === skipE)) taken.add(e.name); }));
+    prog.forEach((w, wi) => w.exercises.forEach((e, ei) => { if (!(wi === skipW && ei === skipE)) taken.add(e.name); }));
     let name = want, n = 2;
     while (taken.has(name)) name = `${want} (${n++})`;
     return name;
@@ -252,34 +252,51 @@
     },
     reset() { data = fresh(); save(); },
 
-    // ---- Program editing (blocked in the UI while a workout is in progress) ----
+    // ---- Program editing ----
+    // The editor works on a private copy (cloneProgram) and nothing touches the real program until
+    // commitProgram. Each copied exercise remembers its original name in `_orig` so renames can be
+    // carried into past sessions at commit time.
+    cloneProgram() {
+      const copy = JSON.parse(JSON.stringify(data.program));
+      copy.forEach((w) => w.exercises.forEach((e) => { e._orig = e.name; }));
+      return copy;
+    },
+    // True if the copy differs from the saved program.
+    programChanged(prog) {
+      const strip = (p) => JSON.stringify(p.map((w) => ({ ...w, exercises: w.exercises.map(({ _orig, ...e }) => e) })));
+      return strip(prog) !== strip(data.program);
+    },
+    // Replaces the real program with the edited copy. Renamed exercises are also renamed in past
+    // sessions, so their history and charts stay joined up. Returns true on success.
+    commitProgram(prog) {
+      if (!prog.length || prog.some((w) => !w.exercises.length)) return false;
+      const renames = new Map();
+      prog.forEach((w) => w.exercises.forEach((e) => { if (e._orig && e._orig !== e.name) renames.set(e._orig, e.name); }));
+      if (renames.size) data.sessions.forEach((s) => s.exercises.forEach((x) => { if (renames.has(x.name)) x.name = renames.get(x.name); }));
+      data.program = prog.map((w) => ({ ...w, exercises: w.exercises.map(({ _orig, ...e }) => e) }));
+      save();
+      return true;
+    },
+    // The functions below edit a copy from cloneProgram (never the saved program).
     // Keeps core lifts above assistance (stable, so the order you chose within each group stays).
-    _tidy(wi) {
-      data.program[wi].exercises.sort((a, b) => (a.type === "assistance" ? 1 : 0) - (b.type === "assistance" ? 1 : 0));
+    _tidy(prog, wi) {
+      prog[wi].exercises.sort((a, b) => (a.type === "assistance" ? 1 : 0) - (b.type === "assistance" ? 1 : 0));
     },
     // patch: any of name, type, sets, repMin, repMax, weight (kg), inc (kg), step.
-    // Renaming also renames the exercise in past sessions, so its history and chart stay joined up.
-    editExercise(wi, ei, patch) {
-      const e = data.program[wi].exercises[ei];
-      if (patch.name !== undefined) patch.name = uniqueName(patch.name, wi, ei);
-      if (patch.name !== undefined && patch.name !== e.name) {
-        data.sessions.forEach((s) => s.exercises.forEach((x) => { if (x.name === e.name) x.name = patch.name; }));
-      }
-      Object.assign(e, patch);
-      this._tidy(wi);
-      save();
+    editExercise(prog, wi, ei, patch) {
+      if (patch.name !== undefined) patch.name = uniqueName(prog, patch.name, wi, ei);
+      Object.assign(prog[wi].exercises[ei], patch);
+      this._tidy(prog, wi);
     },
-    addExercise(wi) {
-      data.program[wi].exercises.push({ name: uniqueName("New exercise", -1, -1), type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
-      save();
+    addExercise(prog, wi) {
+      prog[wi].exercises.push({ name: uniqueName(prog, "New exercise", -1, -1), type: "assistance", sets: 3, repMin: 8, repMax: 12, weight: 0, inc: 2.5, step: 1 });
     },
-    removeExercise(wi, ei) { data.program[wi].exercises.splice(ei, 1); save(); },
+    removeExercise(prog, wi, ei) { prog[wi].exercises.splice(ei, 1); },
     // dir = -1 (up) or +1 (down); only swaps within the same type group.
-    moveExercise(wi, ei, dir) {
-      const l = data.program[wi].exercises, j = ei + dir;
+    moveExercise(prog, wi, ei, dir) {
+      const l = prog[wi].exercises, j = ei + dir;
       if (j < 0 || j >= l.length || (l[j].type === "assistance") !== (l[ei].type === "assistance")) return;
       [l[ei], l[j]] = [l[j], l[ei]];
-      save();
     },
 
     // Choose which workout is next; Upcoming follows because it is derived from the rotation.
