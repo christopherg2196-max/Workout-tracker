@@ -10,7 +10,8 @@ Personal workout tracker that feels like StrongLifts 5×5 (mockups in project fo
 - Progression: **double progression** (rep range per exercise; add weight once top of range hit on all sets).
 - Units: kg or lb, switchable in Settings. All weights are stored in kg and converted only for display/input (`Units` in `store.js`), so history never changes when switching. In lb mode progression steps are 5/10 lb and deload rounds to 1 lb. Style: clean red/white like mockups, dark mode supported.
 - v1 session features: tap-circle sets with fail/partial reps (tap cycles reps down, e.g. 8→7→…→0), editable weight and notes per exercise.
-- Out of v1 (later): rest timer, warmup tab, cloud sync, Programs editor UI, native wrap.
+- Out of v1 (later): rest timer, warmup tab, cloud sync, native wrap.
+- **Workout editor: deliberately not built** (user decision, Nov 2026: more complexity than they'd use). Exercises, sets, rep ranges, weights and increments come from `DEFAULT_PROGRAM` in `store.js`. That only seeds a fresh install: once data is saved on the phone, editing `store.js` does NOT change it. To change the program later, export a backup, edit the `program` section of the JSON (or re-seed), and import it; or build the editor then. So get the real exercise list into `DEFAULT_PROGRAM` before the first real install.
 
 ## Screens
 1. **Home**: next workout card (name, exercises with sets×reps @ kg), Start Workout button, upcoming workouts list. Next workout is selectable (dropdown; upcoming follows). "Week N of this cycle" tracker with Restart. Deload button drops all weights to 70% (rounded to 0.5 kg, confirm first). Bottom tab bar: Home, History, Progress, Settings.
